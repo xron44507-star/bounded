@@ -534,8 +534,10 @@ client.on(Events.InteractionCreate, async interaction => {
             const sanitizedName = user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 15) || 'user';
             const channelName = `ticket-${sanitizedName}`;
 
-            // Determine parent category (if panel is in a category, put ticket under same category)
-            const parentCategory = channel?.parentId || null;
+            // Determine parent category (specific category 1557196984438366279, fallback to channel parent)
+            const configuredCategoryId = '1557196984438366279';
+            const targetCategory = guild.channels.cache.get(configuredCategoryId) || await guild.channels.fetch(configuredCategoryId).catch(() => null);
+            const parentCategory = targetCategory?.id || channel?.parentId || null;
 
             const ticketChannel = await guild.channels.create({
                 name: channelName,
