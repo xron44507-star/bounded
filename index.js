@@ -96,11 +96,11 @@ process.on('uncaughtException', err => {
 
 // DisTube VC Music Player Setup
 const distube = new DisTube(client, {
-    ffmpeg: { path: ffmpegStatic },
+    ffmpeg: { path: process.env.FFMPEG_PATH || ffmpegStatic },
     plugins: [
         new SpotifyPlugin(),
         new SoundCloudPlugin(),
-        new YtDlpPlugin()
+        new YtDlpPlugin({ update: true })
     ],
     emitNewSongOnly: false,
     emitAddSongWhenCreatingQueue: false
