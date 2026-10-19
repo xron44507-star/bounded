@@ -10,7 +10,9 @@ const {
     ButtonBuilder,
     ButtonStyle,
     ComponentType,
-    ChannelType
+    ChannelType,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder
 } = require('discord.js');
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
@@ -560,9 +562,241 @@ client.on(Events.MessageDelete, async message => {
     } catch (_) {}
 });
 
-// ----------------- INTERACTIVE TICKET BUTTON LISTENER -----------------
+// ----------------- HELP EMBED GENERATOR HELPER -----------------
+function getHelpCategoryEmbed(category, avatarUrl) {
+    if (category === 'casino') {
+        return new EmbedBuilder()
+            .setColor(COLORS.GOLD)
+            .setAuthor({ name: '/bounded • Casino & Gambling Suite 🎲', iconURL: avatarUrl })
+            .setTitle('🎰 High-Roller Casino & Economy')
+            .setDescription(
+                `Every player starts with **$1,000** in their vault. All games feature balanced odds, payout multipliers, and protection refunds!\n\n` +
+                `**Core Vault & Jobs**\n` +
+                `• \`${PREFIX}bal [@user]\` — View membership card, net worth, work/daily cooldowns\n` +
+                `• \`${PREFIX}daily\` — Claim daily check ($500 base + streak bonus up to $1,100)\n` +
+                `• \`${PREFIX}work\` — Clock in for a 15-minute shift ($120–$700) with promotions & tips\n` +
+                `• \`${PREFIX}pay <@user> <amount>\` — Wire cash from your vault to another user\n` +
+                `• \`${PREFIX}rob <@user>\` — Heist 20%–45% of someone's cash (or get caught and fined)\n` +
+                `• \`${PREFIX}lb\` — Server wealth hall of fame\n\n` +
+                `**High-Stakes Games**\n` +
+                `• \`${PREFIX}bj <bet>\` — VIP Blackjack (Buttons 🟢🛑⚡, Natural 21 pays 3:2, 5-Card Charlie 2:1)\n` +
+                `• \`${PREFIX}slot <bet>\` — Vegas 3-Reel Slots (777 15x, Diamonds 10x, Cherry 1x safe refund)\n` +
+                `• \`${PREFIX}cf <h|t> <bet>\` — 50/50 Coinflip with consecutive win streaks up to 2.5x payout\n` +
+                `• \`${PREFIX}dice <bet>\` — 2-Dice Craps (Doubles 2.2x, Natural 7/11 2.1x, Push refund 100%)\n` +
+                `• \`${PREFIX}roul <choice> <bet>\` — European Roulette (2x colors/parity, 3x dozens, 18x green 0, 36x number)`
+            )
+            .setFooter({ text: `Page: Casino & Economy • Prefix: ${PREFIX}` })
+            .setTimestamp();
+    }
+
+    if (category === 'music') {
+        return new EmbedBuilder()
+            .setColor(COLORS.MUSIC)
+            .setAuthor({ name: '/bounded • Voice Channel Audio 🎵', iconURL: avatarUrl })
+            .setTitle('🎶 VC Music Streaming')
+            .setDescription(
+                `High-fidelity audio streaming directly into voice channels from YouTube, Spotify, SoundCloud, or direct URLs.\n\n` +
+                `**Playback Controls**\n` +
+                `• \`${PREFIX}play <query/URL>\` *(alias: \`${PREFIX}p\`)* — Search and stream audio\n` +
+                `• \`${PREFIX}skip\` *(alias: \`${PREFIX}next\`)* — Skip currently playing track\n` +
+                `• \`${PREFIX}stop\` *(alias: \`${PREFIX}dc\`, \`${PREFIX}leave\`)* — Stop audio, wipe queue, and leave VC\n` +
+                `• \`${PREFIX}pause\` — Pause playback without losing queue\n` +
+                `• \`${PREFIX}resume\` *(alias: \`${PREFIX}unpause\`)* — Resume paused music\n\n` +
+                `**Queue & Configuration**\n` +
+                `• \`${PREFIX}queue\` *(alias: \`${PREFIX}q\`)* — View upcoming songs list and durations\n` +
+                `• \`${PREFIX}nowplaying\` *(alias: \`${PREFIX}np\`)* — Track progress bar and requester info\n` +
+                `• \`${PREFIX}volume <1-100>\` *(alias: \`${PREFIX}vol\`)* — Adjust volume percentage\n` +
+                `• \`${PREFIX}loop [off|song|queue]\` — Toggle repeat mode\n` +
+                `• \`${PREFIX}shuffle\` — Randomize upcoming queue order`
+            )
+            .setFooter({ text: `Page: Voice Music • Prefix: ${PREFIX}` })
+            .setTimestamp();
+    }
+
+    if (category === 'mod') {
+        return new EmbedBuilder()
+            .setColor(COLORS.RUBY)
+            .setAuthor({ name: '/bounded • Moderation & Security 🛡️', iconURL: avatarUrl })
+            .setTitle('⚔️ Server Moderation Suite')
+            .setDescription(
+                `Powerful staff enforcement utilities featuring automated strike tracking and Alt Shield account interception.\n\n` +
+                `**Disciplinary Actions**\n` +
+                `• \`${PREFIX}warn <@user|ID> [reason]\` — Issue a recorded strike with automated DM notice\n` +
+                `• \`${PREFIX}warnings <@user|ID>\` — View member's complete strike history and timestamps\n` +
+                `• \`${PREFIX}clearwarns <@user|ID>\` — Wipe strikes for a user\n` +
+                `• \`${PREFIX}timeout <@user|ID> <time> [reason]\` — Timeout/mute member (\`10m\`, \`1h\`, \`1d\`)\n` +
+                `• \`${PREFIX}untimeout <@user|ID>\` — Remove timeout restriction immediately\n` +
+                `• \`${PREFIX}purge <1-100>\` — Bulk delete messages in channel\n` +
+                `• \`${PREFIX}kick <@user|ID> [reason]\` — Kick member with DM reason notice\n` +
+                `• \`${PREFIX}ban <@user|ID> [reason]\` — Ban member from server\n` +
+                `• \`${PREFIX}unban <userID> [reason]\` — Revoke ban by user ID\n\n` +
+                `**Alt Shield (Automated Anti-Raid)**\n` +
+                `• \`${PREFIX}hardban <@user|ID> [reason]\` — Permanent hardban + auto-bans all alts & fresh accounts\n` +
+                `• \`${PREFIX}linkalt <hardbannedID> <altID>\` — Permanently bind known alt accounts to watch-list`
+            )
+            .setFooter({ text: `Page: Moderation Suite • Prefix: ${PREFIX}` })
+            .setTimestamp();
+    }
+
+    if (category === 'tickets') {
+        return new EmbedBuilder()
+            .setColor(COLORS.PRIMARY)
+            .setAuthor({ name: '/bounded • Support & Tickets 🎫', iconURL: avatarUrl })
+            .setTitle('📩 Interactive Ticket System')
+            .setDescription(
+                `Button-driven private support channels under dedicated server categories with automated channel permissions.\n\n` +
+                `**Commands & Setup**\n` +
+                `• \`${PREFIX}ticketpanel [channel]\` *(alias: \`${PREFIX}ticketsetup\`)* — Deploy interactive **Create Ticket** button embed (Admin)\n` +
+                `• \`${PREFIX}close [reason]\` — Close ticket & trigger confirmation buttons with 5s countdown\n` +
+                `• \`${PREFIX}add <@user|ID>\` — Grant a user access to the active ticket channel\n` +
+                `• \`${PREFIX}remove <@user|ID>\` — Revoke a user's access from the ticket channel\n\n` +
+                `**Features**\n` +
+                `• 1-Click interactive buttons\n` +
+                `• Private permission isolation (hidden from @everyone)\n` +
+                `• Anti-spam limiter (1 active ticket per member)\n` +
+                `• Auto-routes tickets under configured staff category`
+            )
+            .setFooter({ text: `Page: Ticket System • Prefix: ${PREFIX}` })
+            .setTimestamp();
+    }
+
+    if (category === 'utility') {
+        return new EmbedBuilder()
+            .setColor(COLORS.EMERALD)
+            .setAuthor({ name: '/bounded • Utility & Server Tools 💬', iconURL: avatarUrl })
+            .setTitle('⚡ Server Utilities')
+            .setDescription(
+                `Everyday tools, status management, and automated channel features.\n\n` +
+                `**Commands**\n` +
+                `• \`${PREFIX}snipe\` *(alias: \`${PREFIX}s\`)* — Reveal recently deleted message/photo in channel\n` +
+                `• \`${PREFIX}afk [reason]\` — Set AFK status; notifies anyone who tags you & auto-removes on return\n` +
+                `• \`${PREFIX}help\` *(alias: \`${PREFIX}cmds\`)* — Open interactive help menu\n` +
+                `• \`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)\n\n` +
+                `**Automated Channel Features**\n` +
+                `• **Media-Only Auto-Mod:** Enforces image/video-only channels with instant text wipe & 2s warning\n` +
+                `• **Audit Logging:** Automatically archives deleted messages with attachments in log channel`
+            )
+            .setFooter({ text: `Page: Utilities • Prefix: ${PREFIX}` })
+            .setTimestamp();
+    }
+
+    // Default Overview Page
+    return new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setAuthor({ name: '/bounded • Command Manual', iconURL: avatarUrl })
+        .setTitle('✨ /bounded Dashboard')
+        .setDescription(
+            `Welcome to **/bounded**! Use the **dropdown menu** or **buttons** below to browse commands by category.\n\n` +
+            `**Command Prefix:** \`${PREFIX}\` *(dot)*\n\n` +
+            `📂 **Available Categories:**\n` +
+            `• 🎲 **Casino & Economy** — VIP Blackjack, Slots, Coinflip, Craps, Roulette, Rob, Bal\n` +
+            `• 🎵 **Voice Music** — YT/Spotify/SoundCloud streaming, Queue, Volume, Controls\n` +
+            `• 🛡️ **Moderation Suite** — Warns, Timeouts, Purge, Bans, Hardban & Alt Shield\n` +
+            `• 🎫 **Ticket System** — 1-Click button support channels with auto-permissions\n` +
+            `• 💬 **Utility & Server** — Snipe (\`.s\`), AFK tracking, media-only channels`
+        )
+        .addFields(
+            { name: '⚡ Quick Shortcuts', value: `\`${PREFIX}help casino\` • \`${PREFIX}help music\` • \`${PREFIX}help mod\` • \`${PREFIX}help tickets\` • \`${PREFIX}help utility\``, inline: false }
+        )
+        .setFooter({ text: 'Select a category below or click buttons to navigate' })
+        .setTimestamp();
+}
+
+function getHelpActionRows(currentCategory = 'overview') {
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('help_category_select')
+        .setPlaceholder('📂 Select a command category...')
+        .addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Dashboard Overview')
+                .setValue('overview')
+                .setDescription('View the main dashboard and bot features')
+                .setEmoji('✨')
+                .setDefault(currentCategory === 'overview'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Casino & Gambling')
+                .setValue('casino')
+                .setDescription('Blackjack, slots, coinflip, roulette, craps, rob & vault')
+                .setEmoji('🎲')
+                .setDefault(currentCategory === 'casino'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Voice Music')
+                .setValue('music')
+                .setDescription('Play, skip, stop, queue, volume, pause & loop')
+                .setEmoji('🎵')
+                .setDefault(currentCategory === 'music'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Moderation Suite')
+                .setValue('mod')
+                .setDescription('Warn, timeout, purge, ban, hardban & Alt Shield')
+                .setEmoji('🛡️')
+                .setDefault(currentCategory === 'mod'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Ticket System')
+                .setValue('tickets')
+                .setDescription('Interactive button panels and ticket channel controls')
+                .setEmoji('🎫')
+                .setDefault(currentCategory === 'tickets'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Utility & Tools')
+                .setValue('utility')
+                .setDescription('Snipe (.s), AFK tracking, and channel auto-mod')
+                .setEmoji('💬')
+                .setDefault(currentCategory === 'utility')
+        );
+
+    const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('help_btn_overview')
+            .setLabel('Overview')
+            .setEmoji('🏠')
+            .setStyle(currentCategory === 'overview' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('help_btn_casino')
+            .setLabel('Casino')
+            .setEmoji('🎲')
+            .setStyle(currentCategory === 'casino' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('help_btn_music')
+            .setLabel('Music')
+            .setEmoji('🎵')
+            .setStyle(currentCategory === 'music' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('help_btn_mod')
+            .setLabel('Mod')
+            .setEmoji('🛡️')
+            .setStyle(currentCategory === 'mod' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('help_btn_tickets')
+            .setLabel('Tickets')
+            .setEmoji('🎫')
+            .setStyle(currentCategory === 'tickets' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+    );
+
+    return [
+        new ActionRowBuilder().addComponents(selectMenu),
+        buttons
+    ];
+}
+
+// ----------------- INTERACTIVE TICKET & HELP LISTENER -----------------
 client.on(Events.InteractionCreate, async interaction => {
     try {
+        // Handle Help Menu Select Menu & Button Navigation
+        if (interaction.isStringSelectMenu() && interaction.customId === 'help_category_select') {
+            const selected = interaction.values[0] || 'overview';
+            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL());
+            const rows = getHelpActionRows(selected);
+            return interaction.update({ embeds: [embed], components: rows });
+        }
+
+        if (interaction.isButton() && interaction.customId.startsWith('help_btn_')) {
+            const selected = interaction.customId.replace('help_btn_', '');
+            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL());
+            const rows = getHelpActionRows(selected);
+            return interaction.update({ embeds: [embed], components: rows });
+        }
+
         if (!interaction.isButton()) return;
         const customId = interaction.customId;
         if (!customId.startsWith('ticket_')) return;
@@ -832,82 +1066,21 @@ client.on(Events.MessageCreate, async message => {
 
         // ----------------- HELP COMMAND -----------------
         if (cmd === 'help' || cmd === 'cmds' || cmd === 'commands' || cmd === 'h') {
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.GOLD)
-                .setAuthor({ name: '/bounded Commands', iconURL: client.user.displayAvatarURL() })
-                .setTitle('✨ /bounded Commands')
-                .setDescription(`**Prefix:** \`${PREFIX}\`\nUse any command below with prefix \`${PREFIX}\`:`)
-                .addFields(
-                    {
-                        name: '🎲 Casino & Gambling (Fair Odds VIP Suite)',
-                        value: [
-                            `\`${PREFIX}balance\` (alias: \`${PREFIX}bal\`) — VIP card, rank, streak counters & vault`,
-                            `\`${PREFIX}daily\` — Claim daily check (+$500 up to +$1,100 streak pay)`,
-                            `\`${PREFIX}work\` — Clock in for a 15m shift ($120-$700 + career promotions & tips)`,
-                            `\`${PREFIX}coinflip <h|t> <bet>\` (alias: \`${PREFIX}cf\`) — 50/50 toss with win streak multipliers (up to 2.5x)`,
-                            `\`${PREFIX}slots <bet>\` (alias: \`${PREFIX}slot\`) — Bellagio Vegas slots (15x Jackpot, pairs & safe cherry refund)`,
-                            `\`${PREFIX}blackjack <bet>\` (alias: \`${PREFIX}bj\`) — VIP table (5-Card Charlie 2:1, 3:2 Natural 21, Buttons + Chat)`,
-                            `\`${PREFIX}roulette <choice> <bet>\` (alias: \`${PREFIX}roul\`) — European wheel (red/black/even/odd 2x, dozens 3x, 0 18x, 36x)`,
-                            `\`${PREFIX}dice <bet>\` (alias: \`${PREFIX}roll\`) — 2-Dice craps duel (Lucky Doubles 2.2x, Natural 7/11 2.1x)`,
-                            `\`${PREFIX}rob <@user>\` (alias: \`${PREFIX}steal\`) — High-stakes heist (steal 20-45% or get fined)`,
-                            `\`${PREFIX}pay <@user> <amount>\` (alias: \`${PREFIX}give\`) — Transfer cash to friends`,
-                            `\`${PREFIX}leaderboard\` (alias: \`${PREFIX}lb\`) — Server wealth hall of fame`
-                        ].join('\n')
-                    },
-                    {
-                        name: '🎵 Voice Channel Music',
-                        value: [
-                            `\`${PREFIX}play <query/URL>\` (alias: \`${PREFIX}p\`) — Play/queue audio from YT, Spotify, SoundCloud`,
-                            `\`${PREFIX}skip\` (alias: \`${PREFIX}s\`, \`${PREFIX}next\`) — Skip current track`,
-                            `\`${PREFIX}stop\` (alias: \`${PREFIX}leave\`, \`${PREFIX}dc\`) — Stop playback & leave VC`,
-                            `\`${PREFIX}pause\` — Pause current track`,
-                            `\`${PREFIX}resume\` (alias: \`${PREFIX}unpause\`) — Resume playback`,
-                            `\`${PREFIX}queue\` (alias: \`${PREFIX}q\`) — View upcoming tracks`,
-                            `\`${PREFIX}nowplaying\` (alias: \`${PREFIX}np\`) — Track duration & progress bar`,
-                            `\`${PREFIX}volume <1-100>\` (alias: \`${PREFIX}vol\`) — Set volume level`,
-                            `\`${PREFIX}loop [off|song|queue]\` — Toggle repeat mode`,
-                            `\`${PREFIX}shuffle\` — Randomize upcoming queue`
-                        ].join('\n')
-                    },
-                    {
-                        name: '🛡️ Moderation Suite',
-                        value: [
-                            `\`${PREFIX}kick <@user|ID> [reason]\` — Kick member from server`,
-                            `\`${PREFIX}ban <@user|ID> [reason]\` — Ban member from server`,
-                            `\`${PREFIX}hardban <@user|ID> [reason]\` — Permanent hardban + auto-bans all alts & fresh accounts`,
-                            `\`${PREFIX}linkalt <hardbannedID> <altID>\` — Permanently blacklist known alt accounts`,
-                            `\`${PREFIX}unban <userID> [reason]\` — Revoke ban by Discord ID`,
-                            `\`${PREFIX}timeout <@user|ID> <duration> [reason]\` — Timeout/mute (\`10m\`, \`1h\`, \`1d\`)`,
-                            `\`${PREFIX}untimeout <@user|ID>\` — Lift timeout restriction`,
-                            `\`${PREFIX}purge <1-100>\` — Bulk delete channel messages`,
-                            `\`${PREFIX}warn <@user|ID> [reason]\` — Issue a recorded strike with DM notice`,
-                            `\`${PREFIX}warnings <@user|ID>\` — View member's strike history`,
-                            `\`${PREFIX}clearwarns <@user|ID>\` — Clear member strikes`
-                        ].join('\n')
-                    },
-                    {
-                        name: '🎫 Ticket Support System (Button Driven)',
-                        value: [
-                            `\`${PREFIX}ticketpanel [channel]\` (alias: \`${PREFIX}ticketsetup\`) — Spawn interactive 📩 Create Ticket panel (Admin)`,
-                            `\`${PREFIX}close [reason]\` — Close ticket & prompt deletion confirmation`,
-                            `\`${PREFIX}add <@user|ID>\` — Add a user to the active ticket channel`,
-                            `\`${PREFIX}remove <@user|ID>\` — Remove a user from the active ticket channel`
-                        ].join('\n')
-                    },
-                    {
-                        name: '💬 Utility & Server Features',
-                        value: [
-                            `\`${PREFIX}snipe\` (alias: \`${PREFIX}s\`) — Reveal the most recently deleted message in the channel`,
-                            `\`${PREFIX}afk [reason]\` — Set your AFK status with optional reason & auto-revert`,
-                            `\`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)`,
-                            `\`${PREFIX}help\` (alias: \`${PREFIX}cmds\`) — View all bot features & command list`
-                        ].join('\n')
-                    }
-                )
-                .setFooter({ text: `Example: ${PREFIX}snipe • ${PREFIX}ticketpanel • ${PREFIX}afk dinner • ${PREFIX}bj 100` })
-                .setTimestamp();
+            const subArg = args[0]?.toLowerCase();
+            let initialCategory = 'overview';
+            if (['casino', 'gamble', 'eco', 'economy'].includes(subArg)) initialCategory = 'casino';
+            else if (['music', 'song', 'audio', 'vc'].includes(subArg)) initialCategory = 'music';
+            else if (['mod', 'moderation', 'admin'].includes(subArg)) initialCategory = 'mod';
+            else if (['ticket', 'tickets', 'support'].includes(subArg)) initialCategory = 'tickets';
+            else if (['util', 'utility', 'tools'].includes(subArg)) initialCategory = 'utility';
 
-            return fastReply(message, { embeds: [embed] });
+            const embed = getHelpCategoryEmbed(initialCategory, client.user.displayAvatarURL());
+            const rows = getHelpActionRows(initialCategory);
+
+            return fastReply(message, {
+                embeds: [embed],
+                components: rows
+            });
         }
 
         // ----------------- UTILITY & AFK COMMANDS -----------------
