@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js"
   },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
     "@distube/soundcloud": "^2.0.4",
