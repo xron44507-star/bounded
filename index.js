@@ -24,7 +24,7 @@ const tickets = require('./tickets');
 
 // Configuration
 const TOKEN = process.env.DISCORD_TOKEN;
-const PREFIX = process.env.PREFIX || ',';
+const PREFIX = process.env.PREFIX || '.';
 
 if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
     console.error('\x1b[31m[ERROR] No valid DISCORD_TOKEN found in .env!\x1b[0m');

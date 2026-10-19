@@ -2,7 +2,7 @@
 
 A dedicated, feature-packed Discord bot built with **Discord.js v14** and **DisTube** featuring VC audio streaming, casino gambling with interactive buttons, and server moderation tools.
 
-- **Command Prefix:** `,` (comma)
+- **Command Prefix:** `.` (dot)
 - **Starting Cash:** $1,000 in your vault (saved in `economy.json`)
 - **Voice Channel Audio:** YouTube, Spotify, SoundCloud, direct URLs
 
@@ -13,7 +13,7 @@ A dedicated, feature-packed Discord bot built with **Discord.js v14** and **DisT
 1. Your bot token is already configured in [`.env`](.env):
    ```env
    DISCORD_TOKEN=your_token_here
-   PREFIX=,
+   PREFIX=.
    ```
 2. Start the bot:
    - Double-click [`start.bat`](start.bat), or
@@ -21,7 +21,7 @@ A dedicated, feature-packed Discord bot built with **Discord.js v14** and **DisT
 
 ---
 
-## 🎲 Casino & Gambling Commands (Prefix: `,`)
+## 🎲 Casino & Gambling Commands (Prefix: `.`)
 Every member receives **$1,000 starter cash**. All games are rebalanced for fair, engaging odds with streak mechanics and safety refunds!
 
 | Command | Example | Description & Payouts |
