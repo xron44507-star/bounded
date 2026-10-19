@@ -761,7 +761,7 @@ client.on(Events.MessageCreate, async message => {
                 await message.delete().catch(() => {});
                 return message.channel.send({
                     content: `⚠️ <@${userId}>, this channel is **Images / Media Only**! Text-only messages are not allowed here.`
-                }).then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
+                }).then(m => setTimeout(() => m.delete().catch(() => {}), 2000));
             }
         }
 
