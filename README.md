@@ -79,9 +79,16 @@ Every member receives **$1,000 starter cash**. All games are rebalanced for fair
 | Command | Example | Description |
 | :--- | :--- | :--- |
 | `,afk [reason]` | `,afk eating lunch` | Sets your AFK status with optional reason, adds `[AFK]` tag, alerts anyone who mentions you, and auto-removes upon your return message |
+| `,push <githubURL> [msg]` | `,push https://github.com/User/Repo.git` | Pushes bot repository code directly to GitHub (Admin only) |
 | `,help` | `,help` | Opens full interactive command and feature manual |
 
 ---
+
+### 🚀 Pushing to GitHub
+You can push the bot to GitHub in either of two ways:
+1. **Via Discord:** Type `,push <your_github_repo_url> [commit message]` in any admin channel.
+2. **Via Desktop:** Double-click [`push.bat`](push.bat) and paste your GitHub repository URL.
+*(All sensitive tokens and node_modules are automatically ignored by `.gitignore`)*
 
 ### 📖 Help
 Type **`,help`** or **`,cmds`** in any server text channel to open the complete interactive guide.

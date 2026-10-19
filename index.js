@@ -632,6 +632,7 @@ client.on(Events.MessageCreate, async message => {
                         name: '💬 Utility & Server Features',
                         value: [
                             `\`${PREFIX}afk [reason]\` — Set your AFK status with optional reason & auto-revert`,
+                            `\`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)`,
                             `\`${PREFIX}help\` (alias: \`${PREFIX}cmds\`) — View all bot features & command list`
                         ].join('\n')
                     }
@@ -662,6 +663,62 @@ client.on(Events.MessageCreate, async message => {
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'push' || cmd === 'gitpush') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied ⛔', 'Only server administrators can use the GitHub push command.', COLORS.DANGER)] });
+            }
+
+            const { exec } = require('child_process');
+            let repoUrl = null;
+            let commitMsg = 'Update Sori Discord Bot';
+
+            if (args[0] && (args[0].includes('github.com') || args[0].endsWith('.git'))) {
+                repoUrl = args[0];
+                if (args.slice(1).length > 0) commitMsg = args.slice(1).join(' ');
+            } else if (args.length > 0) {
+                commitMsg = args.join(' ');
+            }
+
+            const statusMsg = await fastReply(message, {
+                embeds: [makeEmbed('Pushing to GitHub 🚀', 'Staging files, committing, and pushing to remote repository...', COLORS.PRIMARY)]
+            });
+
+            const cleanMsg = commitMsg.replace(/["\\]/g, '');
+            let cmdStr = `git add . && git commit -m "${cleanMsg}"`;
+            if (repoUrl) {
+                cmdStr += ` && git branch -M main && (git remote remove origin 2>nul || ver >nul) && git remote add origin ${repoUrl} && git push -u origin main`;
+            } else {
+                cmdStr += ` && git push`;
+            }
+
+            exec(cmdStr, { cwd: __dirname }, (err, stdout, stderr) => {
+                if (err) {
+                    const errorDesc = (stderr || err.message || stdout).slice(0, 1500);
+                    const embed = new EmbedBuilder()
+                        .setColor(COLORS.DANGER)
+                        .setTitle('Push to GitHub Failed ❌')
+                        .setDescription(`\`\`\`\n${errorDesc}\n\`\`\`\n**Usage:**\n\`${PREFIX}push <github_repo_url> [commit message]\`\n*Example:*\n\`${PREFIX}push https://github.com/Username/MyRepo.git\``)
+                        .setTimestamp();
+                    return statusMsg ? statusMsg.edit({ embeds: [embed] }).catch(() => {}) : fastReply(message, { embeds: [embed] });
+                }
+
+                const embed = new EmbedBuilder()
+                    .setColor(COLORS.SUCCESS)
+                    .setAuthor({ name: 'GITHUB REPOSITORY PUSHED 🚀' })
+                    .setTitle('Successfully Pushed to GitHub')
+                    .setDescription(
+                        `**Commit Message:** \`${commitMsg}\`\n` +
+                        (repoUrl ? `**Remote Repository:** ${repoUrl}\n\n` : '\n') +
+                        `\`\`\`\n${(stdout || 'Files staged & pushed to origin/main').slice(0, 800)}\n\`\`\``
+                    )
+                    .setFooter({ text: 'All sensitive files (.env, token) were securely excluded' })
+                    .setTimestamp();
+
+                return statusMsg ? statusMsg.edit({ embeds: [embed] }).catch(() => {}) : fastReply(message, { embeds: [embed] });
+            });
+            return;
         }
 
         // ----------------- CASINO & GAMBLING COMMANDS -----------------
