@@ -35,18 +35,18 @@ if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
     process.exit(1);
 }
 
-// Color Theme
+// Color Theme (Moody Dark / Gothic Aesthetic)
 const COLORS = {
-    PRIMARY: 0x5865F2,
-    SUCCESS: 0x57F287,
-    WARNING: 0xFEE75C,
-    DANGER: 0xED4245,
-    MUSIC: 0xEB459E,
-    GOLD: 0xFFD700,
-    CASINO: 0xF1C40F,
-    DARK: 0x1E1F22,
-    EMERALD: 0x2ECC71,
-    RUBY: 0xE74C3C
+    PRIMARY: 0x18191C,   // Deep sleek charcoal black
+    SUCCESS: 0x2A3B32,   // Muted dark forest emerald
+    WARNING: 0x4A3E20,   // Muted dark amber
+    DANGER: 0x4D1A1E,    // Deep muted blood-ruby
+    MUSIC: 0x2C2640,     // Deep muted midnight amethyst
+    GOLD: 0x362F1E,      // Deep muted dark brass / bronze
+    CASINO: 0x2E2A20,    // Muted deep casino dark gold
+    DARK: 0x0F1012,      // True pitch obsidian dark
+    EMERALD: 0x1E3326,   // Darkened muted pine
+    RUBY: 0x451619       // Darkened gothic noir crimson
 };
 
 const DICE_ART = {
