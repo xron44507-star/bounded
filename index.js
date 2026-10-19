@@ -72,7 +72,7 @@ const activeBlackjackGames = new Map();
 // Channel recent deleted messages cache for ,snipe command
 const snipes = new Map();
 
-// Discord Client Setup with optimized caching
+// Discord Client Setup with aggressive memory caching & high-speed packet handling
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -80,7 +80,17 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers
-    ]
+    ],
+    rest: {
+        timeout: 15000,
+        retries: 3
+    },
+    sweepers: {
+        messages: {
+            interval: 300,
+            lifetime: 600
+        }
+    }
 });
 
 // Guard against disconnects, network timeouts, and unhandled errors
@@ -108,13 +118,13 @@ const distube = new DisTube(client, {
     emitAddSongWhenCreatingQueue: false
 });
 
-// High-speed response helper (skips ping checks, catches deleted message edge-cases)
+// High-speed response helper (non-blocking mentions check, fast direct channel dispatch)
 function fastReply(message, data) {
     if (typeof data === 'string') {
         data = { content: data };
     }
     data.allowedMentions = { repliedUser: false };
-    return message.reply(data).catch(() => message.channel.send(data).catch(() => null));
+    return message.channel.send(data).catch(() => message.reply(data).catch(() => null));
 }
 
 // Generic Embed Helper
@@ -368,7 +378,7 @@ function parseDuration(str) {
     return val * 60 * 1000;
 }
 
-// Instant in-memory cache lookup before network fetch
+// Fast Member Resolver: Checks memory cache immediately before falling back to network fetch
 async function resolveMember(message, arg) {
     if (!arg) return null;
     if (message.mentions.members && message.mentions.members.first()) {
@@ -376,10 +386,13 @@ async function resolveMember(message, arg) {
     }
     const cleanId = arg.replace(/[<@!>]/g, '');
     if (/^\d{17,20}$/.test(cleanId)) {
-        const cached = message.guild.members.cache.get(cleanId);
-        if (cached) return cached;
-        return await message.guild.members.fetch(cleanId).catch(() => null);
+        return message.guild.members.cache.get(cleanId) || await message.guild.members.fetch(cleanId).catch(() => null);
     }
+    // Name/Tag matching from in-memory cache
+    const lower = arg.toLowerCase();
+    const found = message.guild.members.cache.find(m => m.user.username.toLowerCase() === lower || m.displayName.toLowerCase() === lower);
+    if (found) return found;
+
     return null;
 }
 
