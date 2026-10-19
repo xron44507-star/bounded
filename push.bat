@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Push Sori Discord Bot to GitHub
+title Push /bounded Discord Bot to GitHub
 cls
 echo ========================================================
-echo        PUSH SORI DISCORD BOT TO GITHUB
+echo        PUSH /BOUNDED DISCORD BOT TO GITHUB
 echo ========================================================
 echo.
 
@@ -25,9 +25,9 @@ echo.
 echo [*] Selected repository: %REPO%
 echo.
 
-set "MSG=Update Sori Discord Bot"
+set "MSG=Update /bounded Discord Bot"
 set "INPUT_MSG="
-set /p "INPUT_MSG=Enter commit message (Press ENTER for default: 'Update Sori Discord Bot'): "
+set /p "INPUT_MSG=Enter commit message (Press ENTER for default: 'Update /bounded Discord Bot'): "
 if not "%INPUT_MSG%"=="" set "MSG=%INPUT_MSG%"
 
 echo.
@@ -49,7 +49,7 @@ git push -u origin main --force
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo ========================================================
-    echo [SUCCESS] Sori Discord Bot pushed to GitHub successfully!
+    echo [SUCCESS] /bounded Discord Bot pushed to GitHub successfully!
     echo View your repository: %REPO%
     echo ========================================================
 ) else (

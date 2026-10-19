@@ -637,7 +637,7 @@ client.on(Events.InteractionCreate, async interaction => {
             // Welcome embed & buttons inside new channel
             const welcomeEmbed = new EmbedBuilder()
                 .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `Sori Ticket #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
+                .setAuthor({ name: `/bounded Ticket #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
                 .setTitle(`🎫 Support Ticket #${ticketNumber}`)
                 .setDescription(
                     `Welcome <@${user.id}>!\n\n` +
@@ -647,7 +647,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     `• \`${PREFIX}add <@user>\` — Add a user to this ticket\n` +
                     `• \`${PREFIX}remove <@user>\` — Remove a user from this ticket`
                 )
-                .setFooter({ text: 'Sori Ticket Support System • Click buttons below to manage' })
+                .setFooter({ text: '/bounded Ticket Support System • Click buttons below to manage' })
                 .setTimestamp();
 
             const actionRow = new ActionRowBuilder().addComponents(
@@ -834,8 +834,8 @@ client.on(Events.MessageCreate, async message => {
         if (cmd === 'help' || cmd === 'cmds' || cmd === 'commands' || cmd === 'h') {
             const embed = new EmbedBuilder()
                 .setColor(COLORS.GOLD)
-                .setAuthor({ name: 'Sori Commands', iconURL: client.user.displayAvatarURL() })
-                .setTitle('✨ Sori Commands')
+                .setAuthor({ name: '/bounded Commands', iconURL: client.user.displayAvatarURL() })
+                .setTitle('✨ /bounded Commands')
                 .setDescription(`**Prefix:** \`${PREFIX}\`\nUse any command below with prefix \`${PREFIX}\`:`)
                 .addFields(
                     {
@@ -2255,14 +2255,14 @@ client.on(Events.MessageCreate, async message => {
 
             const panelEmbed = new EmbedBuilder()
                 .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `/sori • Support System`, iconURL: client.user.displayAvatarURL() })
+                .setAuthor({ name: `/bounded • Support System`, iconURL: client.user.displayAvatarURL() })
                 .setTitle('📩 Open a Support Ticket')
                 .setDescription(
                     `Need assistance, have a question, or want to report an issue?\n\n` +
                     `Click the **Create Ticket** button below to open a private support channel with our staff team.\n\n` +
                     `📌 *Please only create one ticket at a time. Misuse may result in moderation actions.*`
                 )
-                .setFooter({ text: 'Sori Automated Ticket System' })
+                .setFooter({ text: '/bounded Automated Ticket System' })
                 .setTimestamp();
 
             const row = new ActionRowBuilder().addComponents(
