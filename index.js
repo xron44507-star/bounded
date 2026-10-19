@@ -752,16 +752,15 @@ client.on(Events.MessageCreate, async message => {
         // ----------------- MEDIA-ONLY CHANNEL ENFORCEMENT -----------------
         const MEDIA_ONLY_CHANNEL_ID = '1557200905198112878';
         if (message.channel.id === MEDIA_ONLY_CHANNEL_ID) {
-            // Admins/moderators can bypass if needed, regular members cannot
-            const isStaff = message.member?.permissions.has(PermissionsBitField.Flags.ManageMessages) || message.member?.permissions.has(PermissionsBitField.Flags.Administrator);
             const hasAttachment = message.attachments.size > 0;
             const hasMediaLink = /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp|mp4|mov|webm))/i.test(message.content);
 
-            if (!isStaff && !hasAttachment && !hasMediaLink) {
-                await message.delete().catch(() => {});
-                return message.channel.send({
+            if (!hasAttachment && !hasMediaLink) {
+                message.delete().catch(() => {});
+                message.channel.send({
                     content: `⚠️ <@${userId}>, this channel is **Images / Media Only**! Text-only messages are not allowed here.`
-                }).then(m => setTimeout(() => m.delete().catch(() => {}), 2000));
+                }).then(m => setTimeout(() => m.delete().catch(() => {}), 2000)).catch(() => {});
+                return;
             }
         }
 
