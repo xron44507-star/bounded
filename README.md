@@ -96,6 +96,7 @@ Discord button-driven support ticket channels with automatic permissions and del
 ### 💬 Utility & Server Features (Prefix: `,`)
 | Command | Example | Description |
 | :--- | :--- | :--- |
+| `,snipe` | `,snipe` | Reveals the most recently deleted message and attachments in the current channel |
 | `,afk [reason]` | `,afk eating lunch` | Sets your AFK status with optional reason, adds `[AFK]` tag, alerts anyone who mentions you, and auto-removes upon your return message |
 | `,push <githubURL> [msg]` | `,push https://github.com/User/Repo.git` | Pushes bot repository code directly to GitHub (Admin only) |
 | `,help` | `,help` | Opens full interactive command and feature manual |

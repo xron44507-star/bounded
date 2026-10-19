@@ -67,6 +67,9 @@ function getTier(balance) {
 // Global active blackjack sessions tracking for seamless text & button control
 const activeBlackjackGames = new Map();
 
+// Channel recent deleted messages cache for ,snipe command
+const snipes = new Map();
+
 // Discord Client Setup with optimized caching
 const client = new Client({
     intents: [
@@ -501,6 +504,19 @@ client.on(Events.GuildMemberAdd, async member => {
     }
 });
 
+// Cache recently deleted messages for ,snipe
+client.on(Events.MessageDelete, async message => {
+    try {
+        if (!message || !message.channel || message.author?.bot) return;
+        snipes.set(message.channel.id, {
+            content: message.content || null,
+            author: message.author || null,
+            image: message.attachments.first() ? message.attachments.first().proxyURL || message.attachments.first().url : null,
+            timestamp: Date.now()
+        });
+    } catch (_) {}
+});
+
 // ----------------- INTERACTIVE TICKET BUTTON LISTENER -----------------
 client.on(Events.InteractionCreate, async interaction => {
     try {
@@ -823,19 +839,48 @@ client.on(Events.MessageCreate, async message => {
                     {
                         name: '💬 Utility & Server Features',
                         value: [
+                            `\`${PREFIX}snipe\` — Reveal the most recently deleted message in the channel`,
                             `\`${PREFIX}afk [reason]\` — Set your AFK status with optional reason & auto-revert`,
                             `\`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)`,
                             `\`${PREFIX}help\` (alias: \`${PREFIX}cmds\`) — View all bot features & command list`
                         ].join('\n')
                     }
                 )
-                .setFooter({ text: `Example: ${PREFIX}ticketpanel • ${PREFIX}afk dinner • ${PREFIX}bj 100 • ${PREFIX}play starboy` })
+                .setFooter({ text: `Example: ${PREFIX}snipe • ${PREFIX}ticketpanel • ${PREFIX}afk dinner • ${PREFIX}bj 100` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
         }
 
         // ----------------- UTILITY & AFK COMMANDS -----------------
+        if (cmd === 'snipe' || cmd === 'snoop') {
+            const sniped = snipes.get(message.channel.id);
+            if (!sniped) {
+                return fastReply(message, {
+                    embeds: [makeEmbed('No Deleted Messages 🎯', 'There are no recently deleted messages recorded in this channel.', COLORS.WARNING)]
+                });
+            }
+
+            const timeAgoSec = Math.floor((Date.now() - sniped.timestamp) / 1000);
+            const timeAgoText = timeAgoSec < 60 ? `${timeAgoSec}s ago` : `${Math.floor(timeAgoSec / 60)}m ago`;
+
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({
+                    name: sniped.author ? `${sniped.author.tag || sniped.author.username}` : 'Unknown Author',
+                    iconURL: sniped.author ? sniped.author.displayAvatarURL?.() : null
+                })
+                .setDescription(sniped.content || '*[No text content (attachment or embed only)]*')
+                .setFooter({ text: `Deleted ${timeAgoText} in #${message.channel.name}` })
+                .setTimestamp(sniped.timestamp);
+
+            if (sniped.image) {
+                embed.setImage(sniped.image);
+            }
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
         if (cmd === 'afk') {
             const reason = args.join(' ') || 'AFK';
             const oldNick = message.member?.displayName || message.author.username;
