@@ -9,7 +9,8 @@ const {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    ComponentType
+    ComponentType,
+    ChannelType
 } = require('discord.js');
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
@@ -19,6 +20,7 @@ const ffmpegStatic = require('ffmpeg-static');
 const eco = require('./economy');
 const afk = require('./afk');
 const altshield = require('./altshield');
+const tickets = require('./tickets');
 
 // Configuration
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -499,6 +501,185 @@ client.on(Events.GuildMemberAdd, async member => {
     }
 });
 
+// ----------------- INTERACTIVE TICKET BUTTON LISTENER -----------------
+client.on(Events.InteractionCreate, async interaction => {
+    try {
+        if (!interaction.isButton()) return;
+        const customId = interaction.customId;
+        if (!customId.startsWith('ticket_')) return;
+
+        const { guild, member, channel, user } = interaction;
+        if (!guild) return;
+
+        // 1. OPEN TICKET BUTTON
+        if (customId === 'ticket_create') {
+            // Check if user already has an open ticket in the server
+            const existing = tickets.getUserActiveTicket(user.id);
+            if (existing) {
+                const existingChannel = guild.channels.cache.get(existing.channelId);
+                if (existingChannel) {
+                    return interaction.reply({
+                        content: `⚠️ You already have an open ticket: <#${existing.channelId}>. Please resolve or close it before opening a new one!`,
+                        ephemeral: true
+                    });
+                } else {
+                    // Stale channel that was manually deleted from Discord, clean it up
+                    tickets.deleteTicket(existing.channelId);
+                }
+            }
+
+            await interaction.deferReply({ ephemeral: true });
+
+            // Create private text channel for ticket
+            const sanitizedName = user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 15) || 'user';
+            const channelName = `ticket-${sanitizedName}`;
+
+            // Determine parent category (if panel is in a category, put ticket under same category)
+            const parentCategory = channel?.parentId || null;
+
+            const ticketChannel = await guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: parentCategory,
+                permissionOverwrites: [
+                    {
+                        id: guild.id, // @everyone
+                        deny: [PermissionsBitField.Flags.ViewChannel]
+                    },
+                    {
+                        id: user.id, // Ticket Creator
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages,
+                            PermissionsBitField.Flags.ReadMessageHistory,
+                            PermissionsBitField.Flags.AttachFiles,
+                            PermissionsBitField.Flags.EmbedLinks
+                        ]
+                    },
+                    {
+                        id: client.user.id, // Bot itself
+                        allow: [
+                            PermissionsBitField.Flags.ViewChannel,
+                            PermissionsBitField.Flags.SendMessages,
+                            PermissionsBitField.Flags.ManageChannels,
+                            PermissionsBitField.Flags.ReadMessageHistory,
+                            PermissionsBitField.Flags.EmbedLinks,
+                            PermissionsBitField.Flags.AttachFiles
+                        ]
+                    }
+                ]
+            });
+
+            // Store in ticket database
+            const ticketNumber = tickets.createTicket(ticketChannel.id, user.id);
+
+            // Welcome embed & buttons inside new channel
+            const welcomeEmbed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({ name: `Sori Ticket #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
+                .setTitle(`🎫 Support Ticket #${ticketNumber}`)
+                .setDescription(
+                    `Welcome <@${user.id}>!\n\n` +
+                    `Thank you for contacting support. Please describe your inquiry, question, or issue in detail below. Staff will be with you shortly.\n\n` +
+                    `🛠️ **Commands Available in this Ticket:**\n` +
+                    `• \`${PREFIX}close [reason]\` — Close this ticket\n` +
+                    `• \`${PREFIX}add <@user>\` — Add a user to this ticket\n` +
+                    `• \`${PREFIX}remove <@user>\` — Remove a user from this ticket`
+                )
+                .setFooter({ text: 'Sori Ticket Support System • Click buttons below to manage' })
+                .setTimestamp();
+
+            const actionRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_close')
+                    .setLabel('Close Ticket')
+                    .setEmoji('🔒')
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await ticketChannel.send({
+                content: `<@${user.id}> Welcome! Staff will assist you shortly.`,
+                embeds: [welcomeEmbed],
+                components: [actionRow]
+            });
+
+            return interaction.editReply({
+                content: `✅ Your ticket has been created: <#${ticketChannel.id}>`
+            });
+        }
+
+        // 2. CLOSE TICKET REQUEST BUTTON
+        if (customId === 'ticket_close') {
+            const ticketInfo = tickets.getTicket(channel.id);
+            if (!ticketInfo) {
+                return interaction.reply({
+                    content: '⚠️ This channel is not recognized as an active ticket.',
+                    ephemeral: true
+                });
+            }
+
+            const confirmRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_confirm_close')
+                    .setLabel('Yes, Close & Delete')
+                    .setEmoji('🗑️')
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId('ticket_cancel_close')
+                    .setLabel('Cancel')
+                    .setEmoji('✖️')
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+            const confirmEmbed = new EmbedBuilder()
+                .setColor(COLORS.WARNING)
+                .setTitle('🔒 Close Ticket Confirmation')
+                .setDescription(`Are you sure you want to close and delete this ticket channel?`)
+                .setFooter({ text: `Requested by ${user.tag}` });
+
+            return interaction.reply({
+                embeds: [confirmEmbed],
+                components: [confirmRow]
+            });
+        }
+
+        // 3. CANCEL CLOSE BUTTON
+        if (customId === 'ticket_cancel_close') {
+            await interaction.message.delete().catch(() => {});
+            return interaction.reply({
+                content: '✅ Ticket closure cancelled.',
+                ephemeral: true
+            });
+        }
+
+        // 4. CONFIRM CLOSE & DELETE BUTTON
+        if (customId === 'ticket_confirm_close') {
+            tickets.closeTicket(channel.id);
+            tickets.deleteTicket(channel.id);
+
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(COLORS.DANGER)
+                        .setTitle('🗑️ Ticket Closing')
+                        .setDescription(`Ticket closed by <@${user.id}>.\nThis channel will be deleted in **5 seconds**...`)
+                ]
+            });
+
+            setTimeout(() => {
+                channel.delete(`Ticket closed by ${user.tag}`).catch(err => {
+                    console.error('[TICKETS] Channel delete error:', err);
+                });
+            }, 5000);
+        }
+    } catch (btnErr) {
+        console.error('[TICKET BUTTON ERROR]', btnErr);
+        if (!interaction.replied && !interaction.deferred) {
+            interaction.reply({ content: '⚠️ An error occurred while processing this ticket action.', ephemeral: true }).catch(() => {});
+        }
+    }
+});
+
 // Fast Message Command Handler
 client.on(Events.MessageCreate, async message => {
     try {
@@ -629,6 +810,15 @@ client.on(Events.MessageCreate, async message => {
                         ].join('\n')
                     },
                     {
+                        name: '🎫 Ticket Support System (Button Driven)',
+                        value: [
+                            `\`${PREFIX}ticketpanel [channel]\` (alias: \`${PREFIX}ticketsetup\`) — Spawn interactive 📩 Create Ticket panel (Admin)`,
+                            `\`${PREFIX}close [reason]\` — Close ticket & prompt deletion confirmation`,
+                            `\`${PREFIX}add <@user|ID>\` — Add a user to the active ticket channel`,
+                            `\`${PREFIX}remove <@user|ID>\` — Remove a user from the active ticket channel`
+                        ].join('\n')
+                    },
+                    {
                         name: '💬 Utility & Server Features',
                         value: [
                             `\`${PREFIX}afk [reason]\` — Set your AFK status with optional reason & auto-revert`,
@@ -637,7 +827,7 @@ client.on(Events.MessageCreate, async message => {
                         ].join('\n')
                     }
                 )
-                .setFooter({ text: `Example: ${PREFIX}afk dinner • ${PREFIX}bj 100 • ${PREFIX}play starboy` })
+                .setFooter({ text: `Example: ${PREFIX}ticketpanel • ${PREFIX}afk dinner • ${PREFIX}bj 100 • ${PREFIX}play starboy` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
@@ -1943,6 +2133,126 @@ client.on(Events.MessageCreate, async message => {
             eco.clearWarnings(target.id);
             return fastReply(message, {
                 embeds: [makeEmbed('Record Cleared ✨', `Wiped all strikes for <@${target.id}>.`, COLORS.SUCCESS)]
+            });
+        }
+
+        // ----------------- TICKET SYSTEM COMMANDS -----------------
+        if (cmd === 'ticketpanel' || cmd === 'ticketsetup') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to setup the ticket panel.', COLORS.DANGER, '⛔')] });
+            }
+
+            const targetChannel = message.mentions.channels.first() || message.channel;
+
+            const panelEmbed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({ name: `${message.guild.name} • Support System`, iconURL: message.guild.iconURL() || client.user.displayAvatarURL() })
+                .setTitle('📩 Open a Support Ticket')
+                .setDescription(
+                    `Need assistance, have a question, or want to report an issue?\n\n` +
+                    `Click the **Create Ticket** button below to open a private support channel with our staff team.\n\n` +
+                    `📌 *Please only create one ticket at a time. Misuse may result in moderation actions.*`
+                )
+                .setFooter({ text: 'Sori Automated Ticket System' })
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_create')
+                    .setLabel('Create Ticket')
+                    .setEmoji('📩')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            await targetChannel.send({
+                embeds: [panelEmbed],
+                components: [row]
+            });
+
+            if (targetChannel.id !== message.channel.id) {
+                return fastReply(message, {
+                    embeds: [makeEmbed('Ticket Panel Deployed ✅', `Support ticket panel has been posted in <#${targetChannel.id}>.`, COLORS.SUCCESS)]
+                });
+            }
+            return;
+        }
+
+        if (cmd === 'close') {
+            const ticketInfo = tickets.getTicket(message.channel.id);
+            if (!ticketInfo) {
+                return fastReply(message, { embeds: [makeEmbed('Not a Ticket ⚠️', 'This command can only be used inside an active ticket channel.', COLORS.WARNING)] });
+            }
+
+            const reason = args.join(' ') || 'No reason specified';
+
+            const confirmRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('ticket_confirm_close')
+                    .setLabel('Yes, Close & Delete')
+                    .setEmoji('🗑️')
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId('ticket_cancel_close')
+                    .setLabel('Cancel')
+                    .setEmoji('✖️')
+                    .setStyle(ButtonStyle.Secondary)
+            );
+
+            const confirmEmbed = new EmbedBuilder()
+                .setColor(COLORS.WARNING)
+                .setTitle('🔒 Close Ticket Confirmation')
+                .setDescription(`Are you sure you want to close this ticket?\n**Reason:** ${reason}`)
+                .setFooter({ text: `Requested by ${message.author.tag}` });
+
+            return fastReply(message, {
+                embeds: [confirmEmbed],
+                components: [confirmRow]
+            });
+        }
+
+        if (cmd === 'add' || cmd === 'ticketadd') {
+            const ticketInfo = tickets.getTicket(message.channel.id);
+            if (!ticketInfo) {
+                return fastReply(message, { embeds: [makeEmbed('Not a Ticket ⚠️', 'This command can only be used inside an active ticket channel.', COLORS.WARNING)] });
+            }
+
+            const target = await resolveMember(message, args[0]);
+            if (!target) {
+                return fastReply(message, { embeds: [makeEmbed('Usage', `\`${PREFIX}add <@user|ID>\``, COLORS.PRIMARY, 'ℹ️')] });
+            }
+
+            await message.channel.permissionOverwrites.edit(target.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true,
+                AttachFiles: true,
+                EmbedLinks: true
+            });
+
+            return fastReply(message, {
+                embeds: [makeEmbed('User Added 👥', `Added <@${target.id}> to this ticket channel.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'remove' || cmd === 'ticketremove') {
+            const ticketInfo = tickets.getTicket(message.channel.id);
+            if (!ticketInfo) {
+                return fastReply(message, { embeds: [makeEmbed('Not a Ticket ⚠️', 'This command can only be used inside an active ticket channel.', COLORS.WARNING)] });
+            }
+
+            const target = await resolveMember(message, args[0]);
+            if (!target) {
+                return fastReply(message, { embeds: [makeEmbed('Usage', `\`${PREFIX}remove <@user|ID>\``, COLORS.PRIMARY, 'ℹ️')] });
+            }
+
+            if (target.id === ticketInfo.userId) {
+                return fastReply(message, { embeds: [makeEmbed('Action Denied ⚠️', 'You cannot remove the ticket creator from their own ticket.', COLORS.WARNING)] });
+            }
+
+            await message.channel.permissionOverwrites.delete(target.id).catch(() => {});
+
+            return fastReply(message, {
+                embeds: [makeEmbed('User Removed 👤', `Removed <@${target.id}> from this ticket channel.`, COLORS.SUCCESS)]
             });
         }
     } catch (cmdError) {

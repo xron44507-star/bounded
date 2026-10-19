@@ -75,6 +75,24 @@ Every member receives **$1,000 starter cash**. All games are rebalanced for fair
 
 ---
 
+### 🎫 Interactive Ticket System (Prefix: `,`)
+Discord button-driven support ticket channels with automatic permissions and deletion countdowns:
+
+| Command | Example | Description |
+| :--- | :--- | :--- |
+| `,ticketpanel [channel]` | `,ticketpanel #support` | Sends the interactive **📩 Create Ticket** embed panel with persistent buttons (Admin) |
+| `,close [reason]` | `,close Resolved` | Prompts confirmation buttons (`🗑️ Yes, Close & Delete` / `✖️ Cancel`) inside ticket channel |
+| `,add <@user\|ID>` | `,add @helper` | Grants a specific user access to view and chat in the private ticket channel |
+| `,remove <@user\|ID>` | `,remove @helper` | Revokes a user's access from the ticket channel |
+
+*Features:*
+- **1-Click Button Support**: Users click **📩 Create Ticket** on the panel to spawn a private channel.
+- **Auto Permissions**: Creates a channel hidden from `@everyone` where only the opener, staff, and bot can chat.
+- **Anti-Spam Limiter**: Restricts users to 1 active ticket at a time.
+- **One-Click Close Button**: Includes a **🔒 Close Ticket** button inside every ticket channel.
+
+---
+
 ### 💬 Utility & Server Features (Prefix: `,`)
 | Command | Example | Description |
 | :--- | :--- | :--- |

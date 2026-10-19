@@ -5,4 +5,5 @@ economy.json
 afk.json
 hardbans.json
 warnings.json
+tickets.json
 .DS_Store
