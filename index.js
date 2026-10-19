@@ -504,16 +504,55 @@ client.on(Events.GuildMemberAdd, async member => {
     }
 });
 
-// Cache recently deleted messages for ,snipe
+// Cache recently deleted messages for ,snipe and forward to audit log channel
+const SNIPE_LOG_CHANNEL_ID = '1560394478395854859';
+
 client.on(Events.MessageDelete, async message => {
     try {
         if (!message || !message.channel || message.author?.bot) return;
-        snipes.set(message.channel.id, {
+
+        const deletedData = {
             content: message.content || null,
             author: message.author || null,
             image: message.attachments.first() ? message.attachments.first().proxyURL || message.attachments.first().url : null,
+            attachmentsCount: message.attachments.size,
+            channelName: message.channel.name,
+            channelId: message.channel.id,
             timestamp: Date.now()
-        });
+        };
+
+        snipes.set(message.channel.id, deletedData);
+
+        // Forward deletion audit log to designated channel
+        if (message.guild) {
+            const logChannel = message.guild.channels.cache.get(SNIPE_LOG_CHANNEL_ID) 
+                || await client.channels.fetch(SNIPE_LOG_CHANNEL_ID).catch(() => null);
+
+            if (logChannel && logChannel.isTextBased()) {
+                const logEmbed = new EmbedBuilder()
+                    .setColor(COLORS.RUBY)
+                    .setAuthor({
+                        name: message.author ? `${message.author.tag || message.author.username} (Deleted Message)` : 'Unknown Author',
+                        iconURL: message.author ? message.author.displayAvatarURL() : null
+                    })
+                    .setDescription(
+                        `🗑️ **Message deleted in <#${message.channel.id}>**\n\n` +
+                        (message.content ? message.content : '*[No text content (attachment or embed only)]*')
+                    )
+                    .addFields(
+                        { name: '👤 Author', value: `<@${message.author.id}> \`(${message.author.id})\``, inline: true },
+                        { name: '📍 Channel', value: `<#${message.channel.id}> \`(#${message.channel.name})\``, inline: true }
+                    )
+                    .setFooter({ text: `Message ID: ${message.id || 'N/A'} • Logged automatically` })
+                    .setTimestamp();
+
+                if (deletedData.image) {
+                    logEmbed.setImage(deletedData.image);
+                }
+
+                logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+            }
+        }
     } catch (_) {}
 });
 
@@ -839,7 +878,7 @@ client.on(Events.MessageCreate, async message => {
                     {
                         name: '💬 Utility & Server Features',
                         value: [
-                            `\`${PREFIX}snipe\` — Reveal the most recently deleted message in the channel`,
+                            `\`${PREFIX}snipe\` (alias: \`${PREFIX}s\`) — Reveal the most recently deleted message in the channel`,
                             `\`${PREFIX}afk [reason]\` — Set your AFK status with optional reason & auto-revert`,
                             `\`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)`,
                             `\`${PREFIX}help\` (alias: \`${PREFIX}cmds\`) — View all bot features & command list`
@@ -853,32 +892,36 @@ client.on(Events.MessageCreate, async message => {
         }
 
         // ----------------- UTILITY & AFK COMMANDS -----------------
-        if (cmd === 'snipe' || cmd === 'snoop') {
-            const sniped = snipes.get(message.channel.id);
-            if (!sniped) {
-                return fastReply(message, {
-                    embeds: [makeEmbed('No Deleted Messages 🎯', 'There are no recently deleted messages recorded in this channel.', COLORS.WARNING)]
-                });
+        if (cmd === 'snipe' || cmd === 's' || cmd === 'snoop') {
+            // If user typed ,s while a music queue is active in their voice channel, let skip take precedence only if requested
+            const isSkipIntent = cmd === 's' && distube.getQueue(message) && message.member?.voice?.channel;
+            if (!isSkipIntent) {
+                const sniped = snipes.get(message.channel.id);
+                if (!sniped) {
+                    return fastReply(message, {
+                        embeds: [makeEmbed('No Deleted Messages 🎯', 'There are no recently deleted messages recorded in this channel.', COLORS.WARNING)]
+                    });
+                }
+
+                const timeAgoSec = Math.floor((Date.now() - sniped.timestamp) / 1000);
+                const timeAgoText = timeAgoSec < 60 ? `${timeAgoSec}s ago` : `${Math.floor(timeAgoSec / 60)}m ago`;
+
+                const embed = new EmbedBuilder()
+                    .setColor(COLORS.PRIMARY)
+                    .setAuthor({
+                        name: sniped.author ? `${sniped.author.tag || sniped.author.username}` : 'Unknown Author',
+                        iconURL: sniped.author ? sniped.author.displayAvatarURL?.() : null
+                    })
+                    .setDescription(sniped.content || '*[No text content (attachment or embed only)]*')
+                    .setFooter({ text: `Deleted ${timeAgoText} in #${message.channel.name}` })
+                    .setTimestamp(sniped.timestamp);
+
+                if (sniped.image) {
+                    embed.setImage(sniped.image);
+                }
+
+                return fastReply(message, { embeds: [embed] });
             }
-
-            const timeAgoSec = Math.floor((Date.now() - sniped.timestamp) / 1000);
-            const timeAgoText = timeAgoSec < 60 ? `${timeAgoSec}s ago` : `${Math.floor(timeAgoSec / 60)}m ago`;
-
-            const embed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({
-                    name: sniped.author ? `${sniped.author.tag || sniped.author.username}` : 'Unknown Author',
-                    iconURL: sniped.author ? sniped.author.displayAvatarURL?.() : null
-                })
-                .setDescription(sniped.content || '*[No text content (attachment or embed only)]*')
-                .setFooter({ text: `Deleted ${timeAgoText} in #${message.channel.name}` })
-                .setTimestamp(sniped.timestamp);
-
-            if (sniped.image) {
-                embed.setImage(sniped.image);
-            }
-
-            return fastReply(message, { embeds: [embed] });
         }
 
         if (cmd === 'afk') {
