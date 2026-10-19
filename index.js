@@ -2146,7 +2146,7 @@ client.on(Events.MessageCreate, async message => {
 
             const panelEmbed = new EmbedBuilder()
                 .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `${message.guild.name} • Support System`, iconURL: message.guild.iconURL() || client.user.displayAvatarURL() })
+                .setAuthor({ name: `/sori • Support System`, iconURL: client.user.displayAvatarURL() })
                 .setTitle('📩 Open a Support Ticket')
                 .setDescription(
                     `Need assistance, have a question, or want to report an issue?\n\n` +
