@@ -445,7 +445,33 @@ client.once(Events.ClientReady, c => {
     console.log(`[INFO] Bot prefix is: "${PREFIX}"`);
     console.log(`[INFO] Connected to ${c.guilds.cache.size} server(s).`);
 
-    c.user.setActivity(`${PREFIX}play | ${PREFIX}help | ${PREFIX}blackjack`, { type: ActivityType.Listening });
+    // Dynamic rotating presence status
+    const updatePresence = () => {
+        const totalMembers = c.guilds.cache.reduce((acc, g) => acc + (g.memberCount || 0), 0);
+        const activities = [
+            { name: `.help • ${totalMembers} members`, type: ActivityType.Watching },
+            { name: `.play | VC Audio & Music 🎵`, type: ActivityType.Listening },
+            { name: `High-Roller Casino 🎰 (.bj)`, type: ActivityType.Competing },
+            { name: `.ticketpanel • 24/7 Support 📩`, type: ActivityType.Watching },
+            { name: `Server Security 🛡️ Alt Shield`, type: ActivityType.Watching }
+        ];
+
+        let index = 0;
+        c.user.setPresence({
+            activities: [activities[0]],
+            status: 'online'
+        });
+
+        setInterval(() => {
+            index = (index + 1) % activities.length;
+            c.user.setPresence({
+                activities: [activities[index]],
+                status: 'online'
+            });
+        }, 15000);
+    };
+
+    updatePresence();
 });
 
 // Alt Shield: Auto-detect and ban alts / fresh accounts of hardbanned users on join
