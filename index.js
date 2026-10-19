@@ -671,35 +671,42 @@ client.on(Events.MessageCreate, async message => {
             }
 
             const { exec } = require('child_process');
-            let repoUrl = null;
-            let commitMsg = 'Update Sori Discord Bot';
+            const isForce = args.includes('--force') || args.includes('-f');
+            const cleanArgs = args.filter(a => a !== '--force' && a !== '-f');
 
-            if (args[0] && (args[0].includes('github.com') || args[0].endsWith('.git'))) {
-                repoUrl = args[0];
-                if (args.slice(1).length > 0) commitMsg = args.slice(1).join(' ');
-            } else if (args.length > 0) {
-                commitMsg = args.join(' ');
+            if (cleanArgs[0] && (cleanArgs[0].includes('github.com') || cleanArgs[0].endsWith('.git'))) {
+                repoUrl = cleanArgs[0];
+                if (cleanArgs.slice(1).length > 0) commitMsg = cleanArgs.slice(1).join(' ');
+            } else if (cleanArgs.length > 0) {
+                commitMsg = cleanArgs.join(' ');
             }
 
             const statusMsg = await fastReply(message, {
-                embeds: [makeEmbed('Pushing to GitHub 🚀', 'Staging files, committing, and pushing to remote repository...', COLORS.PRIMARY)]
+                embeds: [makeEmbed('Pushing to GitHub 🚀', isForce ? 'Force-pushing codebase to GitHub...' : 'Staging files, committing, and pushing to remote repository...', COLORS.PRIMARY)]
             });
 
             const cleanMsg = commitMsg.replace(/["\\]/g, '');
-            let cmdStr = `git add . && git commit -m "${cleanMsg}"`;
+            const forceFlag = isForce ? ' --force' : '';
+            let cmdStr = `git add . && (git commit -m "${cleanMsg}" 2>nul || ver >nul)`;
             if (repoUrl) {
-                cmdStr += ` && git branch -M main && (git remote remove origin 2>nul || ver >nul) && git remote add origin ${repoUrl} && git push -u origin main`;
+                cmdStr += ` && git branch -M main && (git remote remove origin 2>nul || ver >nul) && git remote add origin ${repoUrl} && git push -u origin main${forceFlag}`;
             } else {
-                cmdStr += ` && git push`;
+                cmdStr += ` && git push${forceFlag}`;
             }
 
             exec(cmdStr, { cwd: __dirname }, (err, stdout, stderr) => {
                 if (err) {
-                    const errorDesc = (stderr || err.message || stdout).slice(0, 1500);
+                    const outputText = stderr || err.message || stdout;
+                    const errorDesc = outputText.slice(0, 1200);
+                    const isRejected = outputText.includes('fetch first') || outputText.includes('rejected');
+                    const hint = isRejected
+                        ? `💡 **Notice:** The GitHub repository already contains files (e.g., initial README/License).\nTo overwrite it with your bot, run:\n\`${PREFIX}push ${repoUrl || ''} --force\``
+                        : `**Usage:** \`${PREFIX}push [repo_url] [--force]\``;
+
                     const embed = new EmbedBuilder()
                         .setColor(COLORS.DANGER)
                         .setTitle('Push to GitHub Failed ❌')
-                        .setDescription(`\`\`\`\n${errorDesc}\n\`\`\`\n**Usage:**\n\`${PREFIX}push <github_repo_url> [commit message]\`\n*Example:*\n\`${PREFIX}push https://github.com/Username/MyRepo.git\``)
+                        .setDescription(`\`\`\`\n${errorDesc}\n\`\`\`\n${hint}`)
                         .setTimestamp();
                     return statusMsg ? statusMsg.edit({ embeds: [embed] }).catch(() => {}) : fastReply(message, { embeds: [embed] });
                 }
