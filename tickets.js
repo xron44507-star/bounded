@@ -4,7 +4,8 @@ const path = require('path');
 const DB_PATH = path.join(__dirname, 'tickets.json');
 let ticketData = {
     ticketCounter: 1,
-    activeTickets: {}
+    activeTickets: {},
+    appsOpen: false
 };
 
 function loadData() {
@@ -13,6 +14,7 @@ function loadData() {
             ticketData = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
             if (!ticketData.activeTickets) ticketData.activeTickets = {};
             if (!ticketData.ticketCounter) ticketData.ticketCounter = 1;
+            if (typeof ticketData.appsOpen !== 'boolean') ticketData.appsOpen = false;
         }
     } catch (err) {
         console.error('[TICKETS] Load error:', err);
@@ -27,11 +29,12 @@ function saveData() {
 
 loadData();
 
-function createTicket(channelId, userId) {
+function createTicket(channelId, userId, type = 'support') {
     const num = ticketData.ticketCounter++;
     ticketData.activeTickets[channelId] = {
         ticketId: num,
         userId,
+        type,
         createdAt: Date.now(),
         closed: false
     };
@@ -43,10 +46,12 @@ function getTicket(channelId) {
     return ticketData.activeTickets[channelId] || null;
 }
 
-function getUserActiveTicket(userId) {
+function getUserActiveTicket(userId, type = null) {
     for (const [channelId, t] of Object.entries(ticketData.activeTickets)) {
         if (t.userId === userId && !t.closed) {
-            return { channelId, ...t };
+            if (!type || t.type === type) {
+                return { channelId, ...t };
+            }
         }
     }
     return null;
@@ -70,10 +75,22 @@ function deleteTicket(channelId) {
     return false;
 }
 
+function areAppsOpen() {
+    return !!ticketData.appsOpen;
+}
+
+function setAppsOpen(state) {
+    ticketData.appsOpen = !!state;
+    saveData();
+    return ticketData.appsOpen;
+}
+
 module.exports = {
     createTicket,
     getTicket,
     getUserActiveTicket,
     closeTicket,
-    deleteTicket
+    deleteTicket,
+    areAppsOpen,
+    setAppsOpen
 };

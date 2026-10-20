@@ -652,24 +652,26 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     }
 
     if (category === 'tickets') {
+        const appsStatus = tickets.areAppsOpen() ? '🟢 OPEN' : '🔴 CLOSED';
         return new EmbedBuilder()
             .setColor(COLORS.PRIMARY)
-            .setAuthor({ name: '/bounded • Support & Tickets 🎫', iconURL: avatarUrl })
-            .setTitle('📩 Interactive Ticket System')
+            .setAuthor({ name: '/bounded • Support & Applications 🎫', iconURL: avatarUrl })
+            .setTitle('📩 Interactive Support & Staff Applications')
             .setDescription(
-                `Button-driven private support channels under dedicated server categories with automated channel permissions.\n\n` +
+                `Button-driven private support channels and staff applications under dedicated server categories.\n\n` +
                 `**Commands & Setup**\n` +
-                `• \`${PREFIX}ticketpanel [channel]\` *(alias: \`${PREFIX}ticketsetup\`)* — Deploy interactive **Create Ticket** button embed (Admin)\n` +
+                `• \`${PREFIX}ticketpanel [channel]\` *(alias: \`${PREFIX}ticketsetup\`)* — Deploy interactive **Support & Staff Application** portal (Admin)\n` +
+                `• \`${PREFIX}openapps\` — Enable staff applications button for members (Admin)\n` +
+                `• \`${PREFIX}closeapps\` — Disable staff applications button (Admin)\n` +
                 `• \`${PREFIX}close [reason]\` — Close ticket & trigger confirmation buttons with 5s countdown\n` +
                 `• \`${PREFIX}add <@user|ID>\` — Grant a user access to the active ticket channel\n` +
                 `• \`${PREFIX}remove <@user|ID>\` — Revoke a user's access from the ticket channel\n\n` +
-                `**Features**\n` +
-                `• 1-Click interactive buttons\n` +
-                `• Private permission isolation (hidden from @everyone)\n` +
-                `• Anti-spam limiter (1 active ticket per member)\n` +
-                `• Auto-routes tickets under configured staff category`
+                `**Current Status**\n` +
+                `• Staff Applications: **${appsStatus}**\n` +
+                `• Support Category: \`1550661181138669653\`\n` +
+                `• Staff Apps Category: \`1550381632396197908\``
             )
-            .setFooter({ text: `Page: Ticket System • Prefix: ${PREFIX}` })
+            .setFooter({ text: `Page: Tickets & Apps • Prefix: ${PREFIX}` })
             .setTimestamp();
     }
 
@@ -817,15 +819,26 @@ client.on(Events.InteractionCreate, async interaction => {
         const { guild, member, channel, user } = interaction;
         if (!guild) return;
 
-        // 1. OPEN TICKET BUTTON
-        if (customId === 'ticket_create') {
-            // Check if user already has an open ticket in the server
-            const existing = tickets.getUserActiveTicket(user.id);
+        // 1. OPEN TICKET BUTTON (SUPPORT & STAFF APPS)
+        if (customId === 'ticket_create' || customId === 'ticket_create_app') {
+            const isStaffApp = customId === 'ticket_create_app';
+            const ticketType = isStaffApp ? 'app' : 'support';
+
+            // Check if staff applications are currently enabled
+            if (isStaffApp && !tickets.areAppsOpen()) {
+                return interaction.reply({
+                    content: '🔒 Staff applications are currently closed. Please check back later when an announcement is made!',
+                    ephemeral: true
+                });
+            }
+
+            // Check if user already has an open ticket of this type
+            const existing = tickets.getUserActiveTicket(user.id, ticketType);
             if (existing) {
                 const existingChannel = guild.channels.cache.get(existing.channelId);
                 if (existingChannel) {
                     return interaction.reply({
-                        content: `⚠️ You already have an open ticket: <#${existing.channelId}>. Please resolve or close it before opening a new one!`,
+                        content: `⚠️ You already have an open ${isStaffApp ? 'staff application' : 'support ticket'}: <#${existing.channelId}>. Please resolve or close it first!`,
                         ephemeral: true
                     });
                 } else {
@@ -838,11 +851,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
             // Create private text channel for ticket
             const sanitizedName = user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 15) || 'user';
-            const channelName = `ticket-${sanitizedName}`;
+            const channelName = isStaffApp ? `app-${sanitizedName}` : `ticket-${sanitizedName}`;
 
-            // Determine parent category (specific category 1557196984438366279, fallback to channel parent)
-            const configuredCategoryId = '1557196984438366279';
-            const targetCategory = guild.channels.cache.get(configuredCategoryId) || await guild.channels.fetch(configuredCategoryId).catch(() => null);
+            // Destination categories: Staff App: 1550381632396197908 | Support: 1550661181138669653
+            const targetCategoryId = isStaffApp ? '1550381632396197908' : '1550661181138669653';
+            const targetCategory = guild.channels.cache.get(targetCategoryId) || await guild.channels.fetch(targetCategoryId).catch(() => null);
             const parentCategory = targetCategory?.id || channel?.parentId || null;
 
             const ticketChannel = await guild.channels.create({
@@ -879,22 +892,27 @@ client.on(Events.InteractionCreate, async interaction => {
             });
 
             // Store in ticket database
-            const ticketNumber = tickets.createTicket(ticketChannel.id, user.id);
+            const ticketNumber = tickets.createTicket(ticketChannel.id, user.id, ticketType);
 
             // Welcome embed & buttons inside new channel
             const welcomeEmbed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `/bounded Ticket #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
-                .setTitle(`🎫 Support Ticket #${ticketNumber}`)
+                .setColor(isStaffApp ? COLORS.CASINO : COLORS.PRIMARY)
+                .setAuthor({ name: `/bounded ${isStaffApp ? 'Staff Application' : 'Support Ticket'} #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
+                .setTitle(isStaffApp ? `📝 Staff Application #${ticketNumber}` : `🎫 Support Ticket #${ticketNumber}`)
                 .setDescription(
                     `Welcome <@${user.id}>!\n\n` +
-                    `Thank you for contacting support. Please describe your inquiry, question, or issue in detail below. Staff will be with you shortly.\n\n` +
-                    `🛠️ **Commands Available in this Ticket:**\n` +
+                    (isStaffApp 
+                        ? `Thank you for applying to the **/bounded** staff team!\n\n` +
+                          `📋 **Application Instructions:**\n` +
+                          `Please state your **age**, **timezone**, previous **moderation experience**, why you want to join, and what you can bring to the community.\n\n` +
+                          `Staff will review your application shortly.`
+                        : `Thank you for contacting support. Please describe your inquiry, question, or issue in detail below. Staff will be with you shortly.`) +
+                    `\n\n🛠️ **Commands Available in this Ticket:**\n` +
                     `• \`${PREFIX}close [reason]\` — Close this ticket\n` +
                     `• \`${PREFIX}add <@user>\` — Add a user to this ticket\n` +
                     `• \`${PREFIX}remove <@user>\` — Remove a user from this ticket`
                 )
-                .setFooter({ text: '/bounded Ticket Support System • Click buttons below to manage' })
+                .setFooter({ text: `/bounded Ticket System • Click buttons below to manage` })
                 .setTimestamp();
 
             const actionRow = new ActionRowBuilder().addComponents(
@@ -906,13 +924,13 @@ client.on(Events.InteractionCreate, async interaction => {
             );
 
             await ticketChannel.send({
-                content: `<@${user.id}> Welcome! Staff will assist you shortly.`,
+                content: `<@${user.id}> Welcome! ${isStaffApp ? 'Please fill out your staff application details above.' : 'Staff will assist you shortly.'}`,
                 embeds: [welcomeEmbed],
                 components: [actionRow]
             });
 
             return interaction.editReply({
-                content: `✅ Your ticket has been created: <#${ticketChannel.id}>`
+                content: `✅ Your ${isStaffApp ? 'staff application' : 'ticket'} has been created: <#${ticketChannel.id}>`
             });
         }
 
@@ -2432,6 +2450,23 @@ client.on(Events.MessageCreate, async message => {
         }
 
         // ----------------- TICKET SYSTEM COMMANDS -----------------
+        if (cmd === 'openapps' || cmd === 'closeapps' || cmd === 'toggleapps') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to toggle staff applications.', COLORS.DANGER, '⛔')] });
+            }
+
+            const newState = cmd === 'openapps' ? true : cmd === 'closeapps' ? false : !tickets.areAppsOpen();
+            tickets.setAppsOpen(newState);
+
+            const statusText = newState
+                ? '🟢 **Staff Applications are now OPEN!**\nMembers can click **Apply for Staff** on the ticket panel to submit an application.'
+                : '🔴 **Staff Applications are now CLOSED.**\nThe application button on the ticket panel will alert members that applications are currently closed.';
+
+            return fastReply(message, {
+                embeds: [makeEmbed(newState ? 'Applications Opened 📝' : 'Applications Closed 🔒', statusText, newState ? COLORS.SUCCESS : COLORS.WARNING)]
+            });
+        }
+
         if (cmd === 'ticketpanel' || cmd === 'ticketsetup') {
             if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to setup the ticket panel.', COLORS.DANGER, '⛔')] });
@@ -2441,22 +2476,28 @@ client.on(Events.MessageCreate, async message => {
 
             const panelEmbed = new EmbedBuilder()
                 .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `/bounded • Support System`, iconURL: client.user.displayAvatarURL() })
-                .setTitle('📩 Open a Support Ticket')
+                .setAuthor({ name: `/bounded • Support & Staff Portal`, iconURL: client.user.displayAvatarURL() })
+                .setTitle('📩 Open a Ticket or Apply for Staff')
                 .setDescription(
-                    `Need assistance, have a question, or want to report an issue?\n\n` +
-                    `Click the **Create Ticket** button below to open a private support channel with our staff team.\n\n` +
-                    `📌 *Please only create one ticket at a time. Misuse may result in moderation actions.*`
+                    `Welcome to the **/bounded** support hub. Select the relevant option below:\n\n` +
+                    `🎫 **Support Ticket:** Need assistance, report an issue, or speak to staff.\n` +
+                    `📝 **Staff Application:** Submit an application to join our moderation staff team.\n\n` +
+                    `📌 *Please only open one ticket at a time. Misuse may result in moderation actions.*`
                 )
-                .setFooter({ text: '/bounded Automated Ticket System' })
+                .setFooter({ text: '/bounded Automated Portal • Click buttons below' })
                 .setTimestamp();
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('ticket_create')
-                    .setLabel('Create Ticket')
-                    .setEmoji('📩')
-                    .setStyle(ButtonStyle.Primary)
+                    .setLabel('Open Support Ticket')
+                    .setEmoji('🎫')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('ticket_create_app')
+                    .setLabel('Apply for Staff')
+                    .setEmoji('📝')
+                    .setStyle(ButtonStyle.Success)
             );
 
             await targetChannel.send({
@@ -2466,7 +2507,7 @@ client.on(Events.MessageCreate, async message => {
 
             if (targetChannel.id !== message.channel.id) {
                 return fastReply(message, {
-                    embeds: [makeEmbed('Ticket Panel Deployed ✅', `Support ticket panel has been posted in <#${targetChannel.id}>.`, COLORS.SUCCESS)]
+                    embeds: [makeEmbed('Ticket Panel Deployed ✅', `Portal panel has been posted in <#${targetChannel.id}>.`, COLORS.SUCCESS)]
                 });
             }
             return;
