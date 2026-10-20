@@ -69,7 +69,8 @@ const DICE_ART = {
     6: '⚅'
 };
 
-function getTier(balance) {
+function getTier(balance, debt = 0) {
+    if (debt > 0) return '⚠️ Delinquent Debtor';
     if (balance >= 250000) return '👑 Royal High Roller';
     if (balance >= 50000) return '💎 Platinum Whale';
     if (balance >= 15000) return '🥇 Gold VIP';
@@ -173,12 +174,34 @@ function casinoBalanceEmbed(user, ecoData, rank) {
         ? `🟢 \`Ready for shift!\` *(${workTitle})*` 
         : `⏳ \`${Math.ceil((workCooldown - (now - ecoData.lastWork)) / (60 * 1000))}m remaining\``;
 
-    const tier = getTier(ecoData.balance);
+    const tier = getTier(ecoData.balance, ecoData.debt || 0);
     const cfStreak = ecoData.cfStreak || 0;
     const streakDisplay = cfStreak > 0 ? `🔥 \`${cfStreak}-Win Streak\` *(+${Math.min(50, cfStreak * 10)}% Coinflip Boost)*` : '⚪ `No active streak`';
 
+    const fields = [
+        { name: '🎁 Daily Bonus (+$500 - $1,100)', value: `${dailyStatus}\n*(Type \`${PREFIX}daily\`)*`, inline: true },
+        { name: '💼 Career Shift ($120 - $700)', value: `${workStatus}\n*(Type \`${PREFIX}work\`)*`, inline: true },
+        { name: '🪙 Coinflip Streak', value: streakDisplay, inline: false },
+        { name: '🎮 Casino Games', value: `\`${PREFIX}bj\` • \`${PREFIX}slot\` • \`${PREFIX}cf\` • \`${PREFIX}roulette\` • \`${PREFIX}dice\``, inline: false }
+    ];
+
+    if (ecoData.loan) {
+        const dueTimestamp = Math.floor(ecoData.loan.dueAt / 1000);
+        fields.push({
+            name: '🏛️ Active Server Loan',
+            value: `• **Principal Borrowed:** \`${eco.formatMoney(ecoData.loan.principal)}\`\n• **Amount Owed:** \`${eco.formatMoney(ecoData.loan.owed)}\`\n• **Due Date:** <t:${dueTimestamp}:R> *(Repay with \`${PREFIX}payloan\`)*`,
+            inline: false
+        });
+    } else if (ecoData.debt > 0) {
+        fields.push({
+            name: '🚨 Delinquent Server Debt',
+            value: `• **Delinquent Debt:** \`${eco.formatMoney(ecoData.debt)}\` *(Account In Default)*\n• *Repay with \`${PREFIX}payloan\` to clear debt!*`,
+            inline: false
+        });
+    }
+
     return new EmbedBuilder()
-        .setColor(COLORS.GOLD)
+        .setColor(ecoData.debt > 0 ? COLORS.DANGER : COLORS.GOLD)
         .setAuthor({ name: `${user.username.toUpperCase()}'S VIP MEMBERSHIP CARD 💳`, iconURL: user.displayAvatarURL() })
         .setDescription(
             `\`\`\`ansi\n` +
@@ -188,13 +211,8 @@ function casinoBalanceEmbed(user, ecoData, rank) {
             `\u001b[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\u001b[0m\n` +
             `\`\`\``
         )
-        .addFields(
-            { name: '🎁 Daily Bonus (+$500 - $1,100)', value: `${dailyStatus}\n*(Type \`${PREFIX}daily\`)*`, inline: true },
-            { name: '💼 Career Shift ($120 - $700)', value: `${workStatus}\n*(Type \`${PREFIX}work\`)*`, inline: true },
-            { name: '🪙 Coinflip Streak', value: streakDisplay, inline: false },
-            { name: '🎮 Casino Games', value: `\`${PREFIX}bj\` • \`${PREFIX}slot\` • \`${PREFIX}cf\` • \`${PREFIX}roulette\` • \`${PREFIX}dice\``, inline: false }
-        )
-        .setFooter({ text: 'The Grand Casino • Fair Odds & High-Roller VIP Suite' })
+        .addFields(fields)
+        .setFooter({ text: 'The Grand Casino • Fair Odds & Server Treasury Loans' })
         .setTimestamp();
 }
 
@@ -611,6 +629,11 @@ function getHelpCategoryEmbed(category, avatarUrl) {
                 `• \`${PREFIX}pay <@user> <amount>\` — Wire cash from your vault to another user\n` +
                 `• \`${PREFIX}rob <@user>\` — Heist 20%–45% of someone's cash (or get caught and fined)\n` +
                 `• \`${PREFIX}lb\` — Server wealth hall of fame\n\n` +
+                `**Server Funds & Loans**\n` +
+                `• \`${PREFIX}serverfunds\` — View central community bank reserves & debt statistics\n` +
+                `• \`${PREFIX}loan <amount>\` — Borrow money from server funds (repay in 24h or get seized)\n` +
+                `• \`${PREFIX}payloan [amount]\` — Repay active loan (+5% interest) or delinquent debt\n` +
+                `• \`${PREFIX}depositfunds <amount>\` — Donate / invest your cash into server treasury\n\n` +
                 `**High-Stakes Games**\n` +
                 `• \`${PREFIX}bj <bet>\` — VIP Blackjack (6-Deck Shoe, 🟢🛑⚡, Natural 21 pays 3:2, 5-Card Charlie 2:1)\n` +
                 `• \`${PREFIX}slot <bet>\` — Bellagio 3-Reel Slots (777 35x, Diamonds 20x, Bells 12x, Cherry 1x safe refund)\n` +
@@ -1119,6 +1142,30 @@ client.on(Events.MessageCreate, async message => {
 
         const voiceChannel = message.member?.voice?.channel;
 
+        // Auto-audit check for expired server loans (seize funds if defaulted)
+        const loanAudit = eco.checkUserLoanStatus(userId);
+        if (loanAudit.defaulted) {
+            if (loanAudit.resolved) {
+                fastReply(message, {
+                    embeds: [makeEmbed(
+                        'Loan Defaulted & Settled ⚠️',
+                        `Your 24-hour server loan expired! The community treasury automatically seized **${eco.formatMoney(loanAudit.seized)}** from your vault to settle the debt in full.\n💵 **Remaining Vault:** \`${eco.formatMoney(loanAudit.remainingBal)}\``,
+                        COLORS.WARNING,
+                        '🏛️'
+                    )]
+                }).catch(() => {});
+            } else {
+                fastReply(message, {
+                    embeds: [makeEmbed(
+                        'ASSETS SEIZED & ACCOUNT IN DEBT 🚨',
+                        `Your 24-hour server loan expired without repayment!\nThe server treasury has **seized all ${eco.formatMoney(loanAudit.seized)}** from your vault into Server Funds.\n\n⚠️ **Unpaid Balance (Delinquent Debt):** \`${eco.formatMoney(loanAudit.debt)}\`\nUse \`${PREFIX}payloan\` once you earn money to clear your debt!`,
+                        COLORS.DANGER,
+                        '🚨'
+                    )]
+                }).catch(() => {});
+            }
+        }
+
         // ----------------- HELP COMMAND -----------------
         if (cmd === 'help' || cmd === 'cmds' || cmd === 'commands' || cmd === 'h') {
             const subArg = args[0]?.toLowerCase();
@@ -1256,6 +1303,227 @@ client.on(Events.MessageCreate, async message => {
         }
 
         // ----------------- CASINO & GAMBLING COMMANDS -----------------
+        if (cmd === 'serverfunds' || cmd === 'funds' || cmd === 'treasury' || cmd === 'bank') {
+            const stats = eco.getServerStats();
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.GOLD)
+                .setAuthor({ name: `${message.guild?.name || '/bounded'} Community Treasury 🏛️`, iconURL: message.guild?.iconURL() || client.user.displayAvatarURL() })
+                .setTitle('🏛️ CENTRAL SERVER FUNDS & BANK')
+                .setDescription(
+                    `\`\`\`ansi\n` +
+                    `\u001b[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\u001b[0m\n` +
+                    `\u001b[1;37m   SERVER TREASURY: \u001b[1;32m${eco.formatMoney(stats.serverFunds).padEnd(20)}\u001b[0m\n` +
+                    `\u001b[1;37m   ACTIVE OUT LOANS:\u001b[1;36m${eco.formatMoney(stats.totalLoanAmount).padEnd(20)}\u001b[0m\n` +
+                    `\u001b[1;37m   DELINQUENT DEBT: \u001b[1;31m${eco.formatMoney(stats.totalDelinquentDebt).padEnd(20)}\u001b[0m\n` +
+                    `\u001b[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\u001b[0m\n` +
+                    `\`\`\`\n` +
+                    `📊 **Treasury Health & Activity**\n` +
+                    `• **Liquid Reserves:** \`${eco.formatMoney(stats.serverFunds)}\` *(Available for loans)*\n` +
+                    `• **Borrowers on Loan:** \`${stats.totalActiveLoans}\` members currently borrowing\n` +
+                    `• **Total Loans Issued:** \`${stats.totalLoansIssued}\`\n` +
+                    `• **Total Seized / Recovered:** \`${eco.formatMoney(stats.totalFundsSeized)}\`\n\n` +
+                    `💼 **Loan & Treasury Operations**\n` +
+                    `• \`${PREFIX}loan <amount>\` — Borrow cash from server funds to gamble or trade\n` +
+                    `• \`${PREFIX}payloan [amount]\` — Repay active loan (+5% interest) or delinquent debt\n` +
+                    `• \`${PREFIX}depositfunds <amount>\` — Donate / invest cash into the server treasury\n\n` +
+                    `⚠️ **Default Policy:** Loans must be repaid within **24 hours** (+5% interest fee). If you fail to repay, repo agents will **seize all your money** into server funds and place your account in debt!`
+                )
+                .setFooter({ text: 'The Community Treasury • Backed by server liquidity' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'loan' || cmd === 'borrow') {
+            const rawAmount = args[0]?.toLowerCase();
+            if (!rawAmount) {
+                return fastReply(message, {
+                    embeds: [makeEmbed('Loan Usage 🏛️', `\`${PREFIX}loan <amount>\`\nExample: \`${PREFIX}loan 5000\`\n\n• Borrow up to $50,000 from server funds\n• Must be repaid within 24 hours with \`${PREFIX}payloan\`\n• 5% flat loan fee applied\n• If defaulted, all your cash will be seized into server funds!`, COLORS.PRIMARY)]
+                });
+            }
+
+            const currentFunds = eco.getServerFunds();
+            let amount = rawAmount === 'all' || rawAmount === 'max' ? Math.min(50000, Math.floor(currentFunds * 0.5)) : parseInt(rawAmount, 10);
+
+            if (isNaN(amount) || amount <= 0) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Loan Amount ❌', 'Please specify a valid loan amount greater than 0!', COLORS.DANGER)] });
+            }
+
+            if (amount < 100) {
+                return fastReply(message, { embeds: [makeEmbed('Minimum Loan ❌', 'Minimum loan amount is **$100**!', COLORS.DANGER)] });
+            }
+
+            const res = eco.takeLoan(userId, amount);
+            if (!res.success) {
+                if (res.reason === 'active_loan') {
+                    const dueTimestamp = Math.floor(res.loan.dueAt / 1000);
+                    return fastReply(message, {
+                        embeds: [makeEmbed(
+                            'Active Loan Pending ⚠️',
+                            `You already have an active loan of **${eco.formatMoney(res.loan.owed)}** due <t:${dueTimestamp}:R>!\nYou must repay it with \`${PREFIX}payloan\` before taking another loan.`,
+                            COLORS.WARNING,
+                            '🏛️'
+                        )]
+                    });
+                } else if (res.reason === 'unresolved_debt') {
+                    return fastReply(message, {
+                        embeds: [makeEmbed(
+                            'Delinquent Debt Detected 🚨',
+                            `Your account is in default with **${eco.formatMoney(res.debt)}** of unpaid debt!\nYou cannot borrow more funds until you clear this debt with \`${PREFIX}payloan\`.`,
+                            COLORS.DANGER,
+                            '🚨'
+                        )]
+                    });
+                } else if (res.reason === 'insufficient_server_funds') {
+                    return fastReply(message, {
+                        embeds: [makeEmbed(
+                            'Treasury Funds Depleted ❌',
+                            `The server funds currently only have **${eco.formatMoney(res.available)}** available for borrowing.`,
+                            COLORS.DANGER,
+                            '🏛️'
+                        )]
+                    });
+                } else if (res.reason === 'exceeds_max_loan') {
+                    return fastReply(message, {
+                        embeds: [makeEmbed(
+                            'Loan Cap Exceeded ❌',
+                            `The maximum allowed loan right now is **${eco.formatMoney(res.maxLoan)}** (up to 50% of available server funds or $50,000).`,
+                            COLORS.DANGER,
+                            '🏛️'
+                        )]
+                    });
+                }
+            }
+
+            const dueTimestamp = Math.floor(res.dueAt / 1000);
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.GOLD)
+                .setAuthor({ name: 'LOAN APPROVED • FUNDS DISBURSED 🏛️', iconURL: message.author.displayAvatarURL() })
+                .setDescription(
+                    `\`\`\`ansi\n` +
+                    `\u001b[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\u001b[0m\n` +
+                    `\u001b[1;37m   PRINCIPAL BORROWED: \u001b[1;32m+${eco.formatMoney(res.principal).padEnd(19)}\u001b[0m\n` +
+                    `\u001b[1;37m   TOTAL REPAYMENT:    \u001b[1;31m-${eco.formatMoney(res.owed).padEnd(19)}\u001b[0m\n` +
+                    `\u001b[1;37m   INTEREST FEE (5%):  \u001b[1;33m+${eco.formatMoney(res.owed - res.principal).padEnd(19)}\u001b[0m\n` +
+                    `\u001b[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\u001b[0m\n` +
+                    `\`\`\`\n` +
+                    `💰 **Deposited to Your Vault:** \`+${eco.formatMoney(res.principal)}\` *(Use it to gamble, bet, or trade!)*\n` +
+                    `💵 **Your New Vault Balance:** \`${eco.formatMoney(res.newBalance)}\`\n` +
+                    `🏛️ **Remaining Server Funds:** \`${eco.formatMoney(res.serverFunds)}\`\n\n` +
+                    `⏳ **Due Date:** <t:${dueTimestamp}:F> (<t:${dueTimestamp}:R>)\n\n` +
+                    `⚠️ **CRITICAL WARNING:** Repay before the deadline using \`${PREFIX}payloan\`.\n` +
+                    `If you do not pay back on time, **the server will seize ALL your money** and put it into the server funds, leaving any remainder as delinquent debt!`
+                )
+                .setFooter({ text: 'Community Loan Facility • 24h Term • 5% Interest' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'payloan' || cmd === 'repay' || cmd === 'paydebt') {
+            const rawAmount = args[0]?.toLowerCase();
+
+            let amount = null;
+            if (rawAmount && rawAmount !== 'all' && rawAmount !== 'max') {
+                amount = parseInt(rawAmount, 10);
+                if (isNaN(amount) || amount <= 0) {
+                    return fastReply(message, { embeds: [makeEmbed('Invalid Payment Amount ❌', 'Please specify a valid payment amount greater than 0!', COLORS.DANGER)] });
+                }
+            }
+
+            const res = eco.payLoan(userId, amount);
+            if (!res.success) {
+                if (res.reason === 'no_debt') {
+                    return fastReply(message, {
+                        embeds: [makeEmbed('No Outstanding Debt 🎉', 'You have no active loans or delinquent debt! You are completely debt-free.', COLORS.SUCCESS, '✨')]
+                    });
+                } else if (res.reason === 'no_balance') {
+                    return fastReply(message, {
+                        embeds: [makeEmbed('Insufficient Funds ❌', `You have **$0** in your vault! You owe **${eco.formatMoney(res.owed)}**.\nWork shifts (\`${PREFIX}work\`) or claim daily (\`${PREFIX}daily\`) to earn money!`, COLORS.DANGER)]
+                    });
+                }
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.EMERALD)
+                .setAuthor({ name: 'LOAN REPAYMENT PROCESSED 💸', iconURL: message.author.displayAvatarURL() })
+                .setDescription(
+                    `\`\`\`ansi\n` +
+                    `\u001b[1;32m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\u001b[0m\n` +
+                    `\u001b[1;37m   PAYMENT CREDITED:   \u001b[1;32m${eco.formatMoney(res.paid).padEnd(20)}\u001b[0m\n` +
+                    `\u001b[1;37m   STATUS:             \u001b[1;33m${(res.cleared ? '100% PAID IN FULL' : 'PARTIALLY REPAID').padEnd(20)}\u001b[0m\n` +
+                    `\u001b[1;32m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\u001b[0m\n` +
+                    `\`\`\`\n` +
+                    (res.cleared
+                        ? `🎉 **Congratulations!** Your ${res.type === 'debt' ? 'delinquent debt' : 'server loan'} has been **fully cleared**!\nYour account is in excellent standing.`
+                        : `📝 **Partial Payment:** You paid **${eco.formatMoney(res.paid)}**.\nRemaining ${res.type === 'debt' ? 'debt' : 'loan'}: \`${eco.formatMoney(res.type === 'debt' ? res.remainingDebt : res.remainingOwed)}\``) +
+                    `\n\n💵 **Remaining in Your Vault:** \`${eco.formatMoney(res.newBalance)}\`\n` +
+                    `🏛️ **Updated Server Funds:** \`${eco.formatMoney(res.serverFunds)}\``
+                )
+                .setFooter({ text: 'Server Loan Settlement Facility' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'depositfunds' || cmd === 'donatefunds' || cmd === 'fundserver') {
+            const currentBal = eco.getBalance(userId);
+            let amount = args[0]?.toLowerCase() === 'all' ? currentBal : parseInt(args[0], 10);
+            if (isNaN(amount) || amount <= 0) {
+                return fastReply(message, { embeds: [makeEmbed('Deposit Funds Usage 🏛️', `\`${PREFIX}depositfunds <amount>\`\nExample: \`${PREFIX}depositfunds 1000\``, COLORS.PRIMARY)] });
+            }
+
+            const res = eco.depositFunds(userId, amount);
+            if (!res.success) {
+                return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(res.balance)}** in your vault.`, COLORS.DANGER)] });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.GOLD)
+                .setAuthor({ name: 'COMMUNITY TREASURY DEPOSIT 🏛️', iconURL: message.author.displayAvatarURL() })
+                .setDescription(
+                    `Thank you for contributing to the central server funds!\n\n` +
+                    `💵 **Amount Deposited:** \`+${eco.formatMoney(res.deposited)}\`\n` +
+                    `🏛️ **Total Server Funds:** \`${eco.formatMoney(res.serverFunds)}\`\n` +
+                    `💳 **Your Remaining Vault:** \`${eco.formatMoney(res.newBalance)}\``
+                )
+                .setFooter({ text: 'Community Bank Liquidity Provider' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'addfunds') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied ⛔', 'Only server administrators can inject money into server funds.', COLORS.DANGER)] });
+            }
+            const amount = parseInt(args[0], 10);
+            if (isNaN(amount) || amount <= 0) {
+                return fastReply(message, { embeds: [makeEmbed('Add Funds Usage 🏛️', `\`${PREFIX}addfunds <amount>\`\nExample: \`${PREFIX}addfunds 100000\``, COLORS.PRIMARY)] });
+            }
+            const newFunds = eco.addServerFunds(amount);
+            return fastReply(message, {
+                embeds: [makeEmbed('Server Funds Injected 🏛️', `Added **+${eco.formatMoney(amount)}** to the server treasury!\n🏛️ **New Server Funds:** \`${eco.formatMoney(newFunds)}\``, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'forgiveloan' || cmd === 'cleardebt') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied ⛔', 'Only server administrators can forgive loans or debts.', COLORS.DANGER)] });
+            }
+            const target = await resolveMember(message, args[0]);
+            if (!target) {
+                return fastReply(message, { embeds: [makeEmbed('Target Required ❌', `\`${PREFIX}forgiveloan <@user>\``, COLORS.PRIMARY)] });
+            }
+            const forgiven = eco.forgiveLoan(target.id);
+            if (!forgiven) {
+                return fastReply(message, { embeds: [makeEmbed('No Loans or Debt ❌', `<@${target.id}> does not have any active loans or debt.`, COLORS.WARNING)] });
+            }
+            return fastReply(message, {
+                embeds: [makeEmbed('Loan & Debt Forgiven 🤝', `Successfully pardoned all active loans and delinquent debts for <@${target.id}>.`, COLORS.SUCCESS)]
+            });
+        }
+
         if (cmd === 'balance' || cmd === 'bal' || cmd === 'b') {
             const target = (await resolveMember(message, args[0])) || message.member;
             const targetEco = eco.getUser(target.id);
