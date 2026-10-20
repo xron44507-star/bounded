@@ -524,7 +524,7 @@ client.on(Events.GuildMemberAdd, async member => {
 });
 
 // Cache recently deleted messages for ,snipe and forward to audit log channel
-const SNIPE_LOG_CHANNEL_ID = '1560394478395854859';
+const SNIPE_LOG_CHANNEL_ID = '1561898213890465954';
 
 client.on(Events.MessageDelete, async message => {
     try {
