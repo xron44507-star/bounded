@@ -1014,9 +1014,13 @@ client.on(Events.MessageCreate, async message => {
         const userId = message.author.id;
         const raw = message.content.trim().toLowerCase();
 
-        // ----------------- MEDIA-ONLY CHANNEL ENFORCEMENT -----------------
-        const MEDIA_ONLY_CHANNEL_ID = '1557200905198112878';
-        if (message.channel.id === MEDIA_ONLY_CHANNEL_ID) {
+        // ----------------- MEDIA-ONLY CHANNELS ENFORCEMENT -----------------
+        const MEDIA_ONLY_CHANNELS = new Set([
+            '1557200905198112878',
+            '1550381629992865888' // Selfies channel
+        ]);
+
+        if (MEDIA_ONLY_CHANNELS.has(message.channel.id)) {
             const hasAttachment = message.attachments.size > 0;
             const hasMediaLink = /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp|mp4|mov|webm))/i.test(message.content);
 
