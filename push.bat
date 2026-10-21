@@ -10,7 +10,7 @@ echo.
 git status --short
 echo.
 
-set "DEFAULT_REMOTE=https://github.com/xron44507-star/sori"
+set "DEFAULT_REMOTE=https://github.com/xron44507-star/bounded"
 echo Target Repository: %DEFAULT_REMOTE%
 set "INPUT_REPO="
 set /p "INPUT_REPO=Press ENTER to push to this repo, or paste a different URL: "

@@ -16,9 +16,10 @@ const {
     StringSelectMenuOptionBuilder
 } = require('discord.js');
 const { DisTube } = require('distube');
-const { YtDlpPlugin } = require('@distube/yt-dlp');
-const { SoundCloudPlugin } = require('@distube/soundcloud');
 const { SpotifyPlugin } = require('@distube/spotify');
+const { SoundCloudPlugin } = require('@distube/soundcloud');
+const { DirectLinkPlugin } = require('@distube/direct-link');
+const { RobustYtDlpPlugin } = require('./ytdlp-plugin');
 const ffmpegStatic = require('ffmpeg-static');
 const eco = require('./economy');
 const afk = require('./afk');
@@ -118,13 +119,26 @@ process.on('uncaughtException', err => {
     console.error('\x1b[31m[UNCAUGHT EXCEPTION]\x1b[0m', err);
 });
 
+function getFfmpegPath() {
+    if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+    const fs = require('fs');
+    if (fs.existsSync('/usr/bin/ffmpeg')) return '/usr/bin/ffmpeg';
+    if (fs.existsSync('/root/.nix-profile/bin/ffmpeg')) return '/root/.nix-profile/bin/ffmpeg';
+    if (fs.existsSync('/nix/var/nix/profiles/default/bin/ffmpeg')) return '/nix/var/nix/profiles/default/bin/ffmpeg';
+    try {
+        if (ffmpegStatic && fs.existsSync(ffmpegStatic)) return ffmpegStatic;
+    } catch (_) {}
+    return 'ffmpeg';
+}
+
 // DisTube VC Music Player Setup
 const distube = new DisTube(client, {
-    ffmpeg: { path: process.env.FFMPEG_PATH || ffmpegStatic },
+    ffmpeg: { path: getFfmpegPath() },
     plugins: [
         new SpotifyPlugin(),
         new SoundCloudPlugin(),
-        new YtDlpPlugin({ update: true })
+        new DirectLinkPlugin(),
+        new RobustYtDlpPlugin()
     ],
     emitNewSongOnly: false,
     emitAddSongWhenCreatingQueue: false
@@ -2441,12 +2455,16 @@ client.on(Events.MessageCreate, async message => {
             if (!voiceChannel) {
                 return fastReply(message, { embeds: [makeEmbed('Voice Channel Required', 'You must be connected to a voice channel to play music!', COLORS.WARNING, '⚠️')] });
             }
+            const permissions = voiceChannel.permissionsFor(message.guild.members.me);
+            if (permissions && (!permissions.has(PermissionsBitField.Flags.Connect) || !permissions.has(PermissionsBitField.Flags.Speak))) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied ⛔', 'I need **Connect** and **Speak** permissions in your voice channel to play music!', COLORS.DANGER)] });
+            }
             const query = args.join(' ');
             if (!query) {
-                return fastReply(message, { embeds: [makeEmbed('Missing Song Name or URL', `Usage: \`${PREFIX}play <song title or URL>\``, COLORS.WARNING, '🔎')] });
+                return fastReply(message, { embeds: [makeEmbed('Missing Song Name or URL', `Usage: \`${PREFIX}play <song title or URL>\`\nSupports YouTube, Spotify, SoundCloud, and direct audio files.`, COLORS.WARNING, '🔎')] });
             }
 
-            // Instant feedback (<50ms) so user never feels lag while yt-dlp searches
+            // Instant feedback (<50ms) so user never feels lag while searching
             const statusMsg = await fastReply(message, { embeds: [makeEmbed('Searching Track 🔎', `Searching for: **${query}**...`, COLORS.MUSIC)] });
 
             try {
@@ -2459,10 +2477,12 @@ client.on(Events.MessageCreate, async message => {
                     statusMsg.delete().catch(() => {});
                 }
             } catch (err) {
+                console.error('[PLAY ERROR]', err);
+                const errMsg = err.message || err.toString();
                 if (statusMsg) {
-                    statusMsg.edit({ embeds: [makeEmbed('Playback Failed', `\`${err.message || err}\``, COLORS.DANGER, '❌')] }).catch(() => {});
+                    statusMsg.edit({ embeds: [makeEmbed('Playback Failed', `\`${errMsg}\``, COLORS.DANGER, '❌')] }).catch(() => {});
                 } else {
-                    fastReply(message, { embeds: [makeEmbed('Playback Failed', `\`${err.message || err}\``, COLORS.DANGER, '❌')] });
+                    fastReply(message, { embeds: [makeEmbed('Playback Failed', `\`${errMsg}\``, COLORS.DANGER, '❌')] });
                 }
             }
             return;
