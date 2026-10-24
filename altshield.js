@@ -100,6 +100,31 @@ function linkAlt(hardbannedId, altId) {
     return false;
 }
 
+function removeHardban(userId) {
+    let wasHardbanned = false;
+    let record = null;
+
+    if (hardbanData.bannedUsers[userId]) {
+        wasHardbanned = true;
+        record = hardbanData.bannedUsers[userId];
+        delete hardbanData.bannedUsers[userId];
+    }
+
+    // Also remove from any other record's knownAlts list
+    for (const [mainId, rec] of Object.entries(hardbanData.bannedUsers)) {
+        if (rec.knownAlts && rec.knownAlts.includes(userId)) {
+            rec.knownAlts = rec.knownAlts.filter(id => id !== userId);
+            wasHardbanned = true;
+        }
+    }
+
+    if (wasHardbanned) {
+        saveData();
+    }
+
+    return { wasHardbanned, record };
+}
+
 function checkMemberIsAlt(member) {
     const user = member.user;
     const now = Date.now();
@@ -171,6 +196,7 @@ function getHardbanStats() {
 module.exports = {
     recordHardban,
     linkAlt,
+    removeHardban,
     checkMemberIsAlt,
     getHardbanStats,
     hardbanData

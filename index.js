@@ -702,6 +702,7 @@ function getHelpCategoryEmbed(category, avatarUrl) {
                 `• \`${PREFIX}unban <userID> [reason]\` — Revoke ban by user ID\n\n` +
                 `**Alt Shield (Automated Anti-Raid)**\n` +
                 `• \`${PREFIX}hardban <@user|ID> [reason]\` — Permanent hardban + auto-bans all alts & fresh accounts\n` +
+                `• \`${PREFIX}unhardban <@user|ID> [reason]\` — Revoke permanent hardban & clear Alt Shield blacklist\n` +
                 `• \`${PREFIX}linkalt <hardbannedID> <altID>\` — Permanently bind known alt accounts to watch-list`
             )
             .setFooter({ text: `Page: Moderation Suite • Prefix: ${PREFIX}` })
@@ -2775,6 +2776,68 @@ client.on(Events.MessageCreate, async message => {
             });
         }
 
+        if (cmd === 'unhardban') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to unhardban members.', COLORS.DANGER, '⛔')] });
+            }
+
+            const targetId = args[0]?.replace(/[<@!>]/g, '');
+            if (!targetId || !/^\d{17,20}$/.test(targetId)) {
+                return fastReply(message, { embeds: [makeEmbed('Unhardban Usage', `\`${PREFIX}unhardban <@user|ID> [reason]\`\nExample: \`${PREFIX}unhardban 123456789 Appeal accepted\``, COLORS.PRIMARY, '🔓')] });
+            }
+
+            const reason = args.slice(1).join(' ') || 'Unhardbanned by staff';
+
+            // 1. Remove from Alt Shield registry and get record info
+            const { wasHardbanned, record } = altshield.removeHardban(targetId);
+
+            // 2. Revoke primary Discord ban
+            let discordBanRemoved = false;
+            try {
+                await message.guild.bans.remove(targetId, `[UNHARDBAN] ${message.author.tag}: ${reason}`);
+                discordBanRemoved = true;
+            } catch (_) {}
+
+            // 3. If there were known linked alts, unban them as well so they aren't stuck banned
+            const unbannedAlts = [];
+            if (record && record.knownAlts && record.knownAlts.length > 0) {
+                for (const altId of record.knownAlts) {
+                    try {
+                        await message.guild.bans.remove(altId, `[UNHARDBAN ALT] Associated with ${targetId}`);
+                        unbannedAlts.push(`<@${altId}> \`(${altId})\``);
+                    } catch (_) {}
+                }
+            }
+
+            if (!wasHardbanned && !discordBanRemoved) {
+                return fastReply(message, {
+                    embeds: [makeEmbed('Target Not Banned ⚠️', `User ID \`${targetId}\` was neither hardbanned in Alt Shield nor banned on this server.`, COLORS.WARNING)]
+                });
+            }
+
+            const username = record?.username || targetId;
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.SUCCESS)
+                .setAuthor({ name: 'PERMANENT HARDBAN REVOKED 🔓', iconURL: message.guild.iconURL() })
+                .setDescription(
+                    `\`\`\`ansi\n` +
+                    `\u001b[1;32m╔════════════════════════════════════════╗\u001b[0m\n` +
+                    `\u001b[1;32m║      PERMANENT HARDBAN REVOKED         ║\u001b[0m\n` +
+                    `\u001b[1;32m╚════════════════════════════════════════╝\u001b[0m\n` +
+                    `\`\`\`\n` +
+                    `👤 **Unhardbanned User:** <@${targetId}> \`(${username})\`\n` +
+                    `🛡️ **Moderator:** <@${message.author.id}>\n` +
+                    `👁️ **Alt Shield Status:** \`BLACKLIST CLEARED\` *(User & alts can safely rejoin)*\n` +
+                    `🔓 **Discord Server Ban:** ${discordBanRemoved ? '`REVOKED`' : '`NOT ACTIVE OR ALREADY UNBANNED`'}\n` +
+                    (unbannedAlts.length > 0 ? `👥 **Collateral Alts Unbanned:** ${unbannedAlts.join(', ')}\n` : '') +
+                    `📝 **Reason:** ${reason}`
+                )
+                .setFooter({ text: 'User is no longer flagged by Alt Shield watchdog' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
         if (cmd === 'unban') {
             if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to unban members.', COLORS.DANGER, '⛔')] });
@@ -2786,10 +2849,13 @@ client.on(Events.MessageCreate, async message => {
             }
 
             const reason = args.slice(1).join(' ') || 'No reason provided';
+            // Also clean from Alt Shield if they were hardbanned
+            const { wasHardbanned } = altshield.removeHardban(targetId);
+
             try {
                 await message.guild.bans.remove(targetId, `${message.author.tag}: ${reason}`);
                 return fastReply(message, {
-                    embeds: [makeEmbed('Ban Revoked 🔓', `Successfully unbanned user ID: \`${targetId}\`\n**Reason:** ${reason}`, COLORS.SUCCESS)]
+                    embeds: [makeEmbed('Ban Revoked 🔓', `Successfully unbanned user ID: \`${targetId}\`\n**Reason:** ${reason}${wasHardbanned ? '\n🛡️ *Alt Shield hardban record was also automatically cleared.*' : ''}`, COLORS.SUCCESS)]
                 });
             } catch (err) {
                 return fastReply(message, { embeds: [makeEmbed('Unban Failed', `\`${err.message || err}\``, COLORS.DANGER, '❌')] });
