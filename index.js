@@ -261,18 +261,75 @@ function casinoSlotsEmbed(username, avatarUrl, r1, r2, r3, outcome, bet, newBal)
 
 function formatBlackjackCards(cards, inProgress = false) {
     if (inProgress) {
-        return `\`[ 🂡 ${cards[0].val} ${cards[0].suit} ]\`  \`[ 🂠 ? ? ]\``;
+        const c0 = cards[0];
+        return `\`[ 🂡 ${c0.val}${c0.suit} ]\`  \`[ 🂠 ?? HIDDEN ]\``;
     }
-    return cards.map(c => `\`[ 🂡 ${c.val} ${c.suit} ]\``).join('  ');
+    return cards.map(c => `\`[ 🂡 ${c.val}${c.suit} ]\``).join('  ');
 }
 
-function casinoBlackjackEmbed(username, avatarUrl, playerCards, dealerCards, playerTotal, dealerTotal, bet, inProgress, statusMessage) {
+function getHandScoreInfo(cards) {
+    let total = 0;
+    let aces = 0;
+    for (const c of cards) {
+        if (c.val === 'A') { aces++; total += 11; }
+        else if (['K', 'Q', 'J'].includes(c.val)) { total += 10; }
+        else { total += parseInt(c.val, 10); }
+    }
+    let softAces = aces;
+    while (total > 21 && softAces > 0) {
+        total -= 10;
+        softAces--;
+    }
+    const isSoft = softAces > 0 && total <= 21;
+    let display = `${total}`;
+    if (isSoft && total < 21) {
+        display = `${total} (Soft)`;
+    }
+    return { total, isSoft, display };
+}
+
+function getBlackjackRow(canHit, canStand, canDouble, isFinished = false, bet = 0, userId = '') {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('hit')
+            .setLabel('Hit')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('🟢')
+            .setDisabled(!canHit),
+        new ButtonBuilder()
+            .setCustomId('stand')
+            .setLabel('Stand')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🛑')
+            .setDisabled(!canStand),
+        new ButtonBuilder()
+            .setCustomId('double')
+            .setLabel('Double Down')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('⚡')
+            .setDisabled(!canDouble)
+    );
+    if (isFinished && bet > 0 && userId) {
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`bj_rebet_${userId}_${bet}`)
+                .setLabel(`Deal Again (${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('🔄')
+        );
+    }
+    return row;
+}
+
+function casinoBlackjackEmbed(username, avatarUrl, playerCards, dealerCards, playerTotalInfo, dealerTotal, bet, inProgress, statusMessage) {
     const dealerDisplay = formatBlackjackCards(dealerCards, inProgress);
     const playerDisplay = formatBlackjackCards(playerCards, false);
 
     const dealerScore = inProgress
         ? (dealerCards[0].val === 'A' ? '11 or 1' : ['K', 'Q', 'J'].includes(dealerCards[0].val) ? '10' : dealerCards[0].val)
         : dealerTotal;
+
+    const pDisplay = (playerTotalInfo && typeof playerTotalInfo === 'object') ? playerTotalInfo.display : `${playerTotalInfo}`;
 
     let color = COLORS.DARK;
     let title = '🃏 VIP HIGH-ROLLER BLACKJACK';
@@ -291,24 +348,24 @@ function casinoBlackjackEmbed(username, avatarUrl, playerCards, dealerCards, pla
         .setDescription(
             `\`\`\`ansi\n` +
             `\u001b[1;30m╭────────────────────────────────────────╮\u001b[0m\n` +
-            `\u001b[1;37m  🤵 DEALER'S HAND   \u001b[1;33m[ Value: ${dealerScore} ]\u001b[0m\n` +
+            `\u001b[1;37m  🤵 DEALER'S HAND   \u001b[1;33m[ Showing: ${dealerScore} ]\u001b[0m\n` +
             `\u001b[1;30m╰────────────────────────────────────────╯\u001b[0m\n` +
             `\`\`\`\n` +
             `${dealerDisplay}\n\n` +
             `\`\`\`ansi\n` +
             `\u001b[1;30m╭────────────────────────────────────────╮\u001b[0m\n` +
-            `\u001b[1;37m  👤 YOUR HAND       \u001b[1;32m[ Total: ${playerTotal} ]\u001b[0m\n` +
+            `\u001b[1;37m  👤 YOUR HAND       \u001b[1;32m[ Hand: ${pDisplay} ]\u001b[0m\n` +
             `\u001b[1;30m╰────────────────────────────────────────╯\u001b[0m\n` +
             `\`\`\`\n` +
             `${playerDisplay}\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `💰 **Active Wager:** \`${eco.formatMoney(bet)}\`\n` +
+            `💰 **Active Bet:** \`${eco.formatMoney(bet)}\`\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
             (inProgress
-                ? `⚡ **Options:** Click **Hit 🟢**, **Stand 🛑**, or **Double Down ⚡** below, or type \`hit\` / \`stand\` in chat!`
+                ? `⚡ **Actions:** Click **Hit 🟢**, **Stand 🛑**, or **Double Down ⚡** below, or type \`hit\` / \`stand\` / \`double\` in chat!`
                 : statusMessage)
         )
-        .setFooter({ text: inProgress ? 'Action Timer: 60s • 6-Deck Shuffled Shoe • Natural 21 pays 3:2 • 5-Card Charlie pays 2:1!' : 'Hand Finalized • 6-Deck Shuffled Shoe' })
+        .setFooter({ text: inProgress ? 'Action Timer: 90s • 6-Deck Shoe • Natural 21 pays 3:2 • Double Down available on initial hand' : 'Hand Complete • 6-Deck Shoe' })
         .setTimestamp();
 }
 
@@ -416,6 +473,623 @@ function casinoDiceEmbed(username, avatarUrl, pDice, dDice, pTotal, dTotal, resu
         )
         .setFooter({ text: 'High-Stakes 2-Dice Duel • Doubles pay 2.5x • Natural 7/11 pays 2.2x • Push refunds 100% • CSPRNG Fair' })
         .setTimestamp();
+}
+
+// ----------------- CASINO GAME RUNNERS (SUPPORTING COMMANDS & RE-BET BUTTONS) -----------------
+async function startBlackjackGame(channel, user, bet, replyTarget = null) {
+    const userId = user.id;
+    if (activeBlackjackGames.has(userId)) {
+        const warning = { embeds: [makeEmbed('Game In Progress 🃏', 'You already have an active Blackjack hand! Click **Hit 🟢** / **Stand 🛑** or type `hit` / `stand`.', COLORS.WARNING)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    const currentBal = eco.getBalance(userId);
+    if (bet > currentBal) {
+        const warning = { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    eco.removeBalance(userId, bet);
+
+    // 6-Deck Shuffled Shoe for authentic casino distribution
+    const suits = ['♠', '♥', '♦', '♣'];
+    const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const shoe = [];
+    for (let d = 0; d < 6; d++) {
+        for (const s of suits) {
+            for (const v of values) {
+                shoe.push({ val: v, suit: s, text: `${v}${s}` });
+            }
+        }
+    }
+    for (let i = shoe.length - 1; i > 0; i--) {
+        const j = secureRandomInt(0, i);
+        [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
+    }
+
+    function drawCard() {
+        return shoe.pop() || { val: '10', suit: '♠', text: '10♠' };
+    }
+
+    const playerCards = [drawCard(), drawCard()];
+    const dealerCards = [drawCard(), drawCard()];
+    let playerInfo = getHandScoreInfo(playerCards);
+    let dealerInfo = getHandScoreInfo(dealerCards);
+
+    const playerHasNatural = playerInfo.total === 21;
+    const dealerHasNatural = dealerInfo.total === 21;
+
+    // Check balance for initial Double Down availability
+    const canAffordDouble = eco.getBalance(userId) >= bet;
+
+    // Immediate Hole Card Peek on 21
+    if (dealerHasNatural && playerHasNatural) {
+        const endBal = eco.addBalance(userId, bet);
+        const finalEmbed = casinoBlackjackEmbed(
+            user.username,
+            user.displayAvatarURL(),
+            playerCards,
+            dealerCards,
+            playerInfo,
+            21,
+            bet,
+            false,
+            `🤝 **BOTH HOLD NATURAL 21! PUSH!**\nDealer also held Blackjack! Your wager of \`${eco.formatMoney(bet)}\` was safely refunded.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+        );
+        const rows = [getBlackjackRow(false, false, false, true, bet, userId)];
+        if (replyTarget && replyTarget.reply) return replyTarget.reply({ embeds: [finalEmbed], components: rows });
+        return channel.send({ embeds: [finalEmbed], components: rows });
+    } else if (dealerHasNatural) {
+        const endBal = eco.getBalance(userId);
+        const finalEmbed = casinoBlackjackEmbed(
+            user.username,
+            user.displayAvatarURL(),
+            playerCards,
+            dealerCards,
+            playerInfo,
+            21,
+            bet,
+            false,
+            `💀 **DEALER REVEALS NATURAL 21! BLACKJACK!**\nDealer checked hole card. Lost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+        );
+        const rows = [getBlackjackRow(false, false, false, true, bet, userId)];
+        if (replyTarget && replyTarget.reply) return replyTarget.reply({ embeds: [finalEmbed], components: rows });
+        return channel.send({ embeds: [finalEmbed], components: rows });
+    } else if (playerHasNatural) {
+        const winAmount = Math.floor(bet * 2.5);
+        const endBal = eco.addBalance(userId, winAmount);
+        const finalEmbed = casinoBlackjackEmbed(
+            user.username,
+            user.displayAvatarURL(),
+            playerCards,
+            dealerCards,
+            playerInfo,
+            dealerInfo.total,
+            bet,
+            false,
+            `👑 **NATURAL 21! BLACKJACK PAYS 3:2!**\nDealer checked hole card and did not hold 21.\nWon **+${eco.formatMoney(Math.floor(bet * 1.5))}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+        );
+        const rows = [getBlackjackRow(false, false, false, true, bet, userId)];
+        if (replyTarget && replyTarget.reply) return replyTarget.reply({ embeds: [finalEmbed], components: rows });
+        return channel.send({ embeds: [finalEmbed], components: rows });
+    }
+
+    const initialEmbed = casinoBlackjackEmbed(
+        user.username,
+        user.displayAvatarURL(),
+        playerCards,
+        dealerCards,
+        playerInfo,
+        dealerInfo.total,
+        bet,
+        true,
+        ''
+    );
+    const initialControls = [getBlackjackRow(true, true, canAffordDouble, false, bet, userId)];
+
+    let gameMsg;
+    if (replyTarget && replyTarget.reply) {
+        gameMsg = await replyTarget.reply({ embeds: [initialEmbed], components: initialControls }).catch(() => null);
+    } else {
+        gameMsg = await channel.send({ embeds: [initialEmbed], components: initialControls }).catch(() => null);
+    }
+    if (!gameMsg) return;
+
+    const collector = gameMsg.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 90000
+    });
+
+    const gameState = {
+        userId,
+        channelId: channel.id,
+        bet,
+        playerCards,
+        dealerCards,
+        playerInfo,
+        dealerInfo,
+        gameMsg,
+        collector,
+        hit: async () => {
+            playerCards.push(drawCard());
+            playerInfo = getHandScoreInfo(playerCards);
+
+            if (playerInfo.total > 21) {
+                activeBlackjackGames.delete(userId);
+                collector.stop('bust');
+                const endBal = eco.getBalance(userId);
+                return gameMsg.edit({
+                    embeds: [casinoBlackjackEmbed(
+                        user.username,
+                        user.displayAvatarURL(),
+                        playerCards,
+                        dealerCards,
+                        playerInfo,
+                        dealerInfo.total,
+                        bet,
+                        false,
+                        `💀 **BUSTED OVER 21!** Hand Total: \`${playerInfo.total}\`\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+                    )],
+                    components: [getBlackjackRow(false, false, false, true, bet, userId)]
+                }).catch(() => {});
+            }
+
+            // 5-Card Charlie Rule: 5 cards without busting pays 2:1 profit!
+            if (playerCards.length >= 5 && playerInfo.total <= 21) {
+                activeBlackjackGames.delete(userId);
+                collector.stop('charlie');
+                const won = bet * 3;
+                const endBal = eco.addBalance(userId, won);
+                return gameMsg.edit({
+                    embeds: [casinoBlackjackEmbed(
+                        user.username,
+                        user.displayAvatarURL(),
+                        playerCards,
+                        dealerCards,
+                        playerInfo,
+                        dealerInfo.total,
+                        bet,
+                        false,
+                        `🌟 **5-CARD CHARLIE! LEGENDARY HAND!**\nDrew 5 cards without busting (Total: \`${playerInfo.total}\`)!\nPays 2:1 profit! Won **+${eco.formatMoney(bet * 2)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+                    )],
+                    components: [getBlackjackRow(false, false, false, true, bet, userId)]
+                }).catch(() => {});
+            }
+
+            if (playerInfo.total === 21) {
+                return await gameState.stand();
+            }
+
+            return gameMsg.edit({
+                embeds: [casinoBlackjackEmbed(user.username, user.displayAvatarURL(), playerCards, dealerCards, playerInfo, dealerInfo.total, bet, true, '')],
+                components: [getBlackjackRow(true, true, false, false, bet, userId)]
+            }).catch(() => {});
+        },
+        stand: async () => {
+            activeBlackjackGames.delete(userId);
+            collector.stop('stand');
+
+            // Standard Casino Dealer Rules: Dealer hits on all totals < 17, stands on 17+
+            while (getHandScoreInfo(dealerCards).total < 17) {
+                dealerCards.push(drawCard());
+            }
+            dealerInfo = getHandScoreInfo(dealerCards);
+
+            let finalMsg = '';
+            if (dealerInfo.total > 21) {
+                const won = bet * 2;
+                const endBal = eco.addBalance(userId, won);
+                finalMsg = `🎉 **DEALER BUSTED!** (Dealer: \`${dealerInfo.total}\` vs Player: \`${playerInfo.total}\`)\nYou won **+${eco.formatMoney(bet)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
+            } else if (playerInfo.total > dealerInfo.total) {
+                const won = bet * 2;
+                const endBal = eco.addBalance(userId, won);
+                finalMsg = `🎉 **YOU WIN!** (Player: \`${playerInfo.total}\` vs Dealer: \`${dealerInfo.total}\`)\nYou won **+${eco.formatMoney(bet)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
+            } else if (playerInfo.total < dealerInfo.total) {
+                const endBal = eco.getBalance(userId);
+                finalMsg = `💀 **DEALER WINS!** (Dealer: \`${dealerInfo.total}\` vs Player: \`${playerInfo.total}\`)\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
+            } else {
+                const endBal = eco.addBalance(userId, bet);
+                finalMsg = `🤝 **PUSH (TIE)!** Both hold \`${playerInfo.total}\`.\nWager refunded.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
+            }
+
+            return gameMsg.edit({
+                embeds: [casinoBlackjackEmbed(user.username, user.displayAvatarURL(), playerCards, dealerCards, playerInfo, dealerInfo.total, bet, false, finalMsg)],
+                components: [getBlackjackRow(false, false, false, true, bet, userId)]
+            }).catch(() => {});
+        },
+        double: async () => {
+            const balLeft = eco.getBalance(userId);
+            if (balLeft < bet) {
+                return channel.send({ content: `<@${userId}> ❌ Not enough cash in vault to double down! You need **${eco.formatMoney(bet)}** more.` }).then(m => setTimeout(() => m.delete().catch(() => {}), 3500));
+            }
+            eco.removeBalance(userId, bet);
+            bet *= 2;
+            gameState.bet = bet;
+
+            playerCards.push(drawCard());
+            playerInfo = getHandScoreInfo(playerCards);
+
+            if (playerInfo.total > 21) {
+                activeBlackjackGames.delete(userId);
+                collector.stop('bust');
+                const endBal = eco.getBalance(userId);
+                return gameMsg.edit({
+                    embeds: [casinoBlackjackEmbed(
+                        user.username,
+                        user.displayAvatarURL(),
+                        playerCards,
+                        dealerCards,
+                        playerInfo,
+                        dealerInfo.total,
+                        bet,
+                        false,
+                        `💀 **DOUBLE DOWN BUSTED!** Hand Total: \`${playerInfo.total}\`\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
+                    )],
+                    components: [getBlackjackRow(false, false, false, true, bet, userId)]
+                }).catch(() => {});
+            }
+
+            return await gameState.stand();
+        }
+    };
+
+    activeBlackjackGames.set(userId, gameState);
+
+    collector.on('collect', async i => {
+        if (i.user.id !== userId) return i.reply({ content: '❌ This is not your game of Blackjack!', ephemeral: true });
+        await i.deferUpdate().catch(() => {});
+
+        if (i.customId === 'hit') await gameState.hit();
+        else if (i.customId === 'stand') await gameState.stand();
+        else if (i.customId === 'double') await gameState.double();
+    });
+
+    collector.on('end', async (_, reason) => {
+        if (activeBlackjackGames.has(userId)) {
+            await gameState.stand();
+        }
+    });
+}
+
+async function runSlotsGame(channel, user, bet, replyTarget = null) {
+    const userId = user.id;
+    const currentBal = eco.getBalance(userId);
+    if (bet > currentBal) {
+        const warning = { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    eco.removeBalance(userId, bet);
+
+    const reelWeights = [
+        { symbol: '🍒', weight: 26 },
+        { symbol: '🍋', weight: 22 },
+        { symbol: '🍇', weight: 20 },
+        { symbol: '🔔', weight: 16 },
+        { symbol: '💎', weight: 10 },
+        { symbol: '7️⃣', weight: 6 }
+    ];
+    const totalWeight = reelWeights.reduce((acc, r) => acc + r.weight, 0);
+    function spinReel() {
+        let r = secureRandomInt(0, totalWeight - 1);
+        for (const item of reelWeights) {
+            if (r < item.weight) return item.symbol;
+            r -= item.weight;
+        }
+        return '🍒';
+    }
+
+    const r1 = spinReel();
+    const r2 = spinReel();
+    const r3 = spinReel();
+
+    let outcome = { multiplier: 0, banner: '★ TRY AGAIN ★', desc: '' };
+    if (r1 === r2 && r2 === r3) {
+        if (r1 === '7️⃣') outcome = { multiplier: 35, banner: '★ ★ ★ GRAND JACKPOT ★ ★ ★', desc: 'TRIPLE LUCKY 7s (35x)' };
+        else if (r1 === '💎') outcome = { multiplier: 20, banner: '★ ★ DIAMOND JACKPOT ★ ★', desc: 'TRIPLE DIAMONDS (20x)' };
+        else if (r1 === '🔔') outcome = { multiplier: 12, banner: '★ ★ GOLDEN BELLS ★ ★', desc: 'TRIPLE BELLS (12x)' };
+        else if (r1 === '🍇') outcome = { multiplier: 8, banner: '★ ★ ROYAL GRAPES ★ ★', desc: 'TRIPLE GRAPES (8x)' };
+        else if (r1 === '🍋') outcome = { multiplier: 6, banner: '★ LEMON HARVEST ★', desc: 'TRIPLE LEMONS (6x)' };
+        else outcome = { multiplier: 5, banner: '★ TRIPLE CHERRIES ★', desc: 'TRIPLE CHERRIES (5x)' };
+    } else if (r1 === r2 || r2 === r3 || r1 === r3) {
+        const pairSym = (r1 === r2 || r1 === r3) ? r1 : r2;
+        if (pairSym === '7️⃣' || pairSym === '💎') outcome = { multiplier: 3.0, banner: '★ HIGH-ROLLER PAIR ★', desc: `PAIR OF ${pairSym} (3x)` };
+        else if (pairSym === '🔔' || pairSym === '🍇') outcome = { multiplier: 2.0, banner: '★ LUCKY PAIR ★', desc: `PAIR OF ${pairSym} (2x)` };
+        else outcome = { multiplier: 1.5, banner: '★ FRUIT PAIR ★', desc: `PAIR OF ${pairSym} (1.5x)` };
+    } else if ([r1, r2, r3].filter(s => ['🍒', '🍋', '🍇'].includes(s)).length === 3) {
+        outcome = { multiplier: 1.2, banner: '★ FRUIT SALAD COMBO ★', desc: 'ALL-FRUIT SALAD MIX (1.2x)' };
+    } else if (r1 === '🍒' || r2 === '🍒' || r3 === '🍒') {
+        outcome = { multiplier: 1, banner: '★ SAFE SPIN REFUND ★', desc: 'SINGLE CHERRY CONSOLATION' };
+    }
+
+    let newBal = 0;
+    if (outcome.multiplier > 0) {
+        newBal = eco.addBalance(userId, Math.floor(bet * outcome.multiplier));
+    } else {
+        newBal = eco.getBalance(userId);
+    }
+
+    const spinEmbed = new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setAuthor({ name: `${user.username}'s Bellagio Slots 🎰`, iconURL: user.displayAvatarURL() })
+        .setDescription(
+            `\`\`\`\n` +
+            `╔══════════════════════════════════╗\n` +
+            `║      ★ BELLAGIO CASINO ★         ║\n` +
+            `╠══════════════════════════════════╣\n` +
+            `║      [  🌀  │  🌀  │  🌀  ]       ║ ◀ SPINNING\n` +
+            `╠══════════════════════════════════╣\n` +
+            `║       PULLING REEL LEVER...      ║\n` +
+            `╚══════════════════════════════════╝\n` +
+            `\`\`\`\n` +
+            `🎰 **Spinning the 3-Reel Slots...**\n` +
+            `💰 **Wager Placed:** \`${eco.formatMoney(bet)}\``
+        );
+
+    let statusMsg;
+    if (replyTarget && replyTarget.reply) {
+        statusMsg = await replyTarget.reply({ embeds: [spinEmbed] }).catch(() => null);
+    } else {
+        statusMsg = await channel.send({ embeds: [spinEmbed] }).catch(() => null);
+    }
+
+    setTimeout(async () => {
+        const finalEmbed = casinoSlotsEmbed(user.username, user.displayAvatarURL(), r1, r2, r3, outcome, bet, newBal);
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`slots_respin_${userId}_${bet}`)
+                .setLabel(`Spin Again (${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🎰')
+        );
+        if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+        else await channel.send({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+    }, 650);
+}
+
+async function runCoinflipGame(channel, user, choice, bet, replyTarget = null) {
+    const userId = user.id;
+    const currentBal = eco.getBalance(userId);
+    if (bet > currentBal) {
+        const warning = { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    eco.removeBalance(userId, bet);
+
+    const pickedHeads = choice === 'heads' || choice === 'h';
+    const isHeads = secureRandomInt(0, 1) === 1;
+    const won = (pickedHeads && isHeads) || (!pickedHeads && !isHeads);
+    const ecoUser = eco.getUser(userId);
+
+    let profit = 0;
+    let endBal = 0;
+    let streak = ecoUser.cfStreak || 0;
+
+    if (won) {
+        ecoUser.cfStreak = streak + 1;
+        streak = ecoUser.cfStreak;
+        const bonusRate = streak === 1 ? 1.0 : streak === 2 ? 1.10 : streak === 3 ? 1.25 : streak === 4 ? 1.40 : 1.50;
+        profit = Math.floor(bet * bonusRate);
+        endBal = eco.addBalance(userId, bet + profit);
+    } else {
+        ecoUser.cfStreak = 0;
+        endBal = eco.getBalance(userId);
+    }
+    eco.scheduleSave();
+
+    const ticketId = generateFairTicket();
+
+    const spinEmbed = new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setAuthor({ name: `${user.username}'s Double-or-Nothing 🪙`, iconURL: user.displayAvatarURL() })
+        .setDescription(
+            `\`\`\`\n` +
+            `    .--------.   \n` +
+            `   /  FLIP... \\  \n` +
+            `  |     🪙     | \n` +
+            `   \\   ↺ ↻    /  \n` +
+            `    '--------'   \n` +
+            `\`\`\`\n` +
+            `🪙 **Tossing coin in the air...**\n` +
+            `🎯 **Your Pick:** \`${pickedHeads ? 'HEADS' : 'TAILS'}\` • **Wager:** \`${eco.formatMoney(bet)}\`\n\n` +
+            `*Generating CSPRNG cryptographic verification (Roll #${ticketId})...*`
+        );
+
+    let statusMsg;
+    if (replyTarget && replyTarget.reply) {
+        statusMsg = await replyTarget.reply({ embeds: [spinEmbed] }).catch(() => null);
+    } else {
+        statusMsg = await channel.send({ embeds: [spinEmbed] }).catch(() => null);
+    }
+
+    setTimeout(async () => {
+        const finalEmbed = casinoCoinflipEmbed(
+            user.username,
+            user.displayAvatarURL(),
+            pickedHeads ? 'heads' : 'tails',
+            isHeads,
+            won,
+            bet,
+            streak,
+            profit,
+            endBal,
+            ticketId
+        );
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`cf_pick_${userId}_heads_${bet}`)
+                .setLabel(`Flip Heads (${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🪙'),
+            new ButtonBuilder()
+                .setCustomId(`cf_pick_${userId}_tails_${bet}`)
+                .setLabel(`Flip Tails (${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('🪙')
+        );
+        if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+        else await channel.send({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+    }, 650);
+}
+
+async function runDiceGame(channel, user, bet, replyTarget = null) {
+    const userId = user.id;
+    const currentBal = eco.getBalance(userId);
+    if (bet > currentBal) {
+        const warning = { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    eco.removeBalance(userId, bet);
+
+    const p1 = secureRandomInt(1, 6);
+    const p2 = secureRandomInt(1, 6);
+    const d1 = secureRandomInt(1, 6);
+    const d2 = secureRandomInt(1, 6);
+
+    const pTotal = p1 + p2;
+    const dTotal = d1 + d2;
+
+    let resultType = 'loss';
+    let multiplier = 0;
+
+    if (pTotal === dTotal) {
+        resultType = 'tie';
+        multiplier = 1;
+    } else if (pTotal > dTotal) {
+        if (p1 === p2) {
+            resultType = 'doubles';
+            multiplier = 2.5;
+        } else if (pTotal === 7 || pTotal === 11) {
+            resultType = 'natural';
+            multiplier = 2.2;
+        } else {
+            resultType = 'win';
+            multiplier = 2.0;
+        }
+    }
+
+    let newBal = 0;
+    if (resultType === 'tie') {
+        newBal = eco.addBalance(userId, bet);
+    } else if (resultType !== 'loss') {
+        newBal = eco.addBalance(userId, Math.floor(bet * multiplier));
+    } else {
+        newBal = eco.getBalance(userId);
+    }
+
+    const rollEmbed = new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setAuthor({ name: `${user.username}'s High-Stakes Craps Dice 🎲`, iconURL: user.displayAvatarURL() })
+        .setDescription(
+            `🎲 **Shaking the dice cup on the felt table...**\n` +
+            `\`[ 🎲 🎲  vs  🎲 🎲 ]\`\n\n` +
+            `💰 **Wager Placed:** \`${eco.formatMoney(bet)}\`\n` +
+            `*Rolling with cryptographically secure physics...*`
+        );
+
+    let statusMsg;
+    if (replyTarget && replyTarget.reply) {
+        statusMsg = await replyTarget.reply({ embeds: [rollEmbed] }).catch(() => null);
+    } else {
+        statusMsg = await channel.send({ embeds: [rollEmbed] }).catch(() => null);
+    }
+
+    setTimeout(async () => {
+        const finalEmbed = casinoDiceEmbed(user.username, user.displayAvatarURL(), [p1, p2], [d1, d2], pTotal, dTotal, resultType, multiplier, bet, newBal);
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`dice_reroll_${userId}_${bet}`)
+                .setLabel(`Roll Again (${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🎲')
+        );
+        if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+        else await channel.send({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+    }, 650);
+}
+
+async function runRouletteGame(channel, user, choice, bet, replyTarget = null) {
+    const userId = user.id;
+    const currentBal = eco.getBalance(userId);
+    if (bet > currentBal) {
+        const warning = { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] };
+        if (replyTarget && replyTarget.reply) return replyTarget.reply(warning);
+        return channel.send(warning);
+    }
+
+    eco.removeBalance(userId, bet);
+
+    const roll = secureRandomInt(0, 36);
+    const redNumbers = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+    const isRed = redNumbers.includes(roll);
+    const isBlack = roll !== 0 && !isRed;
+    const isGreen = roll === 0;
+
+    const isEvenMoney = ['red', 'black', 'even', 'odd', 'low', 'high'].includes(choice);
+    let won = false;
+    let multiplier = 0;
+    let isLaPartage = false;
+
+    if (choice === 'red' && isRed) { won = true; multiplier = 2; }
+    else if (choice === 'black' && isBlack) { won = true; multiplier = 2; }
+    else if (choice === 'even' && roll !== 0 && roll % 2 === 0) { won = true; multiplier = 2; }
+    else if (choice === 'odd' && roll % 2 !== 0) { won = true; multiplier = 2; }
+    else if (choice === 'low' && roll >= 1 && roll <= 18) { won = true; multiplier = 2; }
+    else if (choice === 'high' && roll >= 19 && roll <= 36) { won = true; multiplier = 2; }
+    else if (choice === '1st12' && roll >= 1 && roll <= 12) { won = true; multiplier = 3; }
+    else if (choice === '2nd12' && roll >= 13 && roll <= 24) { won = true; multiplier = 3; }
+    else if (choice === '3rd12' && roll >= 25 && roll <= 36) { won = true; multiplier = 3; }
+    else if ((choice === 'green' || choice === '0') && isGreen) { won = true; multiplier = 36; }
+    else if (parseInt(choice, 10) === roll) { won = true; multiplier = 36; }
+    else if (isGreen && isEvenMoney) {
+        isLaPartage = true;
+    }
+
+    const rollColor = isGreen ? '🟩 ZERO' : isRed ? '🟥 RED' : '⬛ BLACK';
+    let newBal = 0;
+    if (won) {
+        newBal = eco.addBalance(userId, bet * multiplier);
+    } else if (isLaPartage) {
+        newBal = eco.addBalance(userId, Math.floor(bet * 0.5));
+    } else {
+        newBal = eco.getBalance(userId);
+    }
+
+    const spinEmbed = new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setAuthor({ name: `${user.username}'s European Roulette 🎡`, iconURL: user.displayAvatarURL() })
+        .setDescription(
+            `🎡 **Spinning the European Roulette wheel...**\n` +
+            `⚪ *The ivory ball is bouncing across the 37 numbered pockets...*\n\n` +
+            `🎯 **Your Call:** \`${choice.toUpperCase()}\` • **Wager:** \`${eco.formatMoney(bet)}\``
+        );
+
+    let statusMsg;
+    if (replyTarget && replyTarget.reply) {
+        statusMsg = await replyTarget.reply({ embeds: [spinEmbed] }).catch(() => null);
+    } else {
+        statusMsg = await channel.send({ embeds: [spinEmbed] }).catch(() => null);
+    }
+
+    setTimeout(async () => {
+        const finalEmbed = casinoRouletteEmbed(user.username, user.displayAvatarURL(), choice, roll, rollColor, won, bet, multiplier, newBal, isLaPartage);
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`roul_respin_${userId}_${choice}_${bet}`)
+                .setLabel(`Re-spin (${choice.toUpperCase()} • ${eco.formatMoney(bet)})`)
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🎡')
+        );
+        if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+        else await channel.send({ embeds: [finalEmbed], components: [actionRow] }).catch(() => {});
+    }, 650);
 }
 
 function parseDuration(str) {
@@ -872,6 +1546,88 @@ client.on(Events.InteractionCreate, async interaction => {
 
         if (!interaction.isButton()) return;
         const customId = interaction.customId;
+
+        // Casino Quick Re-bet & Interactive Choice Buttons
+        if (customId.startsWith('bj_rebet_')) {
+            const parts = customId.split('_');
+            const targetUserId = parts[2];
+            const bet = parseInt(parts[3], 10);
+            if (interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: `❌ Start your own hand with \`${PREFIX}bj <bet>\`!`, ephemeral: true });
+            }
+            if (activeBlackjackGames.has(targetUserId)) {
+                return interaction.reply({ content: '⚠️ You already have an active Blackjack hand in progress!', ephemeral: true });
+            }
+            const bal = eco.getBalance(targetUserId);
+            if (bal < bet) {
+                return interaction.reply({ content: `❌ Insufficient vault funds! You only have **${eco.formatMoney(bal)}**.`, ephemeral: true });
+            }
+            await interaction.deferUpdate().catch(() => {});
+            return startBlackjackGame(interaction.channel, interaction.user, bet);
+        }
+
+        if (customId.startsWith('slots_respin_')) {
+            const parts = customId.split('_');
+            const targetUserId = parts[2];
+            const bet = parseInt(parts[3], 10);
+            if (interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: `❌ Start your own slots game with \`${PREFIX}slots <bet>\`!`, ephemeral: true });
+            }
+            const bal = eco.getBalance(targetUserId);
+            if (bal < bet) {
+                return interaction.reply({ content: `❌ Insufficient vault funds! You only have **${eco.formatMoney(bal)}**.`, ephemeral: true });
+            }
+            await interaction.deferUpdate().catch(() => {});
+            return runSlotsGame(interaction.channel, interaction.user, bet);
+        }
+
+        if (customId.startsWith('cf_pick_')) {
+            const parts = customId.split('_');
+            const targetUserId = parts[2];
+            const choice = parts[3];
+            const bet = parseInt(parts[4], 10);
+            if (interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: `❌ Start your own coinflip with \`${PREFIX}cf <heads|tails> <bet>\`!`, ephemeral: true });
+            }
+            const bal = eco.getBalance(targetUserId);
+            if (bal < bet) {
+                return interaction.reply({ content: `❌ Insufficient vault funds! You only have **${eco.formatMoney(bal)}**.`, ephemeral: true });
+            }
+            await interaction.deferUpdate().catch(() => {});
+            return runCoinflipGame(interaction.channel, interaction.user, choice, bet);
+        }
+
+        if (customId.startsWith('dice_reroll_')) {
+            const parts = customId.split('_');
+            const targetUserId = parts[2];
+            const bet = parseInt(parts[3], 10);
+            if (interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: `❌ Start your own dice duel with \`${PREFIX}dice <bet>\`!`, ephemeral: true });
+            }
+            const bal = eco.getBalance(targetUserId);
+            if (bal < bet) {
+                return interaction.reply({ content: `❌ Insufficient vault funds! You only have **${eco.formatMoney(bal)}**.`, ephemeral: true });
+            }
+            await interaction.deferUpdate().catch(() => {});
+            return runDiceGame(interaction.channel, interaction.user, bet);
+        }
+
+        if (customId.startsWith('roul_respin_')) {
+            const parts = customId.split('_');
+            const targetUserId = parts[2];
+            const choice = parts[3];
+            const bet = parseInt(parts[4], 10);
+            if (interaction.user.id !== targetUserId) {
+                return interaction.reply({ content: `❌ Start your own roulette round with \`${PREFIX}roulette <choice> <bet>\`!`, ephemeral: true });
+            }
+            const bal = eco.getBalance(targetUserId);
+            if (bal < bet) {
+                return interaction.reply({ content: `❌ Insufficient vault funds! You only have **${eco.formatMoney(bal)}**.`, ephemeral: true });
+            }
+            await interaction.deferUpdate().catch(() => {});
+            return runRouletteGame(interaction.channel, interaction.user, choice, bet);
+        }
+
         if (!customId.startsWith('ticket_')) return;
 
         const { guild, member, channel, user } = interaction;
@@ -1665,79 +2421,35 @@ client.on(Events.MessageCreate, async message => {
         }
 
         if (cmd === 'coinflip' || cmd === 'cf') {
-            const choice = args[0]?.toLowerCase();
-            if (choice !== 'heads' && choice !== 'tails' && choice !== 'h' && choice !== 't') {
-                return fastReply(message, { embeds: [makeEmbed('Coinflip Usage 🪙', `\`${PREFIX}coinflip <heads|tails> <bet>\`\nExample: \`${PREFIX}coinflip heads 100\``, COLORS.PRIMARY)] });
+            const currentBal = eco.getBalance(userId);
+            let choice = args[0]?.toLowerCase();
+            let bet = 0;
+
+            // Check if first arg was bet instead of choice (e.g. `.cf 100` or `.cf all`)
+            if (choice === 'all' || /^\d+$/.test(choice)) {
+                bet = choice === 'all' ? currentBal : parseInt(choice, 10);
+                if (bet <= 0 || isNaN(bet)) return fastReply(message, { embeds: [makeEmbed('Invalid Bet ❌', 'Please specify a bet amount greater than 0!', COLORS.DANGER)] });
+                if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
+
+                const promptRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`cf_pick_${userId}_heads_${bet}`).setLabel('Heads 🪙').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`cf_pick_${userId}_tails_${bet}`).setLabel('Tails 🪙').setStyle(ButtonStyle.Secondary)
+                );
+                return fastReply(message, {
+                    embeds: [makeEmbed('Coinflip 🪙', `Wager: **${eco.formatMoney(bet)}**\nChoose **Heads** or **Tails** below to flip:`, COLORS.PRIMARY)],
+                    components: [promptRow]
+                });
             }
 
-            const pickedHeads = choice === 'heads' || choice === 'h';
-            const currentBal = eco.getBalance(userId);
+            if (choice !== 'heads' && choice !== 'tails' && choice !== 'h' && choice !== 't') {
+                return fastReply(message, { embeds: [makeEmbed('Coinflip Usage 🪙', `\`${PREFIX}coinflip <heads|tails> <bet>\` or \`${PREFIX}cf <bet>\`\nExample: \`${PREFIX}cf heads 100\` or \`${PREFIX}cf 50\``, COLORS.PRIMARY)] });
+            }
 
-            let bet = args[1]?.toLowerCase() === 'all' ? currentBal : parseInt(args[1], 10);
+            bet = args[1]?.toLowerCase() === 'all' ? currentBal : parseInt(args[1], 10);
             if (isNaN(bet) || bet <= 0) return fastReply(message, { embeds: [makeEmbed('Invalid Bet ❌', 'Please specify a bet amount greater than 0!', COLORS.DANGER)] });
             if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
 
-            // Deduct wager upfront to prevent exploit during animation
-            eco.removeBalance(userId, bet);
-
-            // True cryptographically uniform random toss (strictly 50/50)
-            const isHeads = secureRandomInt(0, 1) === 1;
-            const won = (pickedHeads && isHeads) || (!pickedHeads && !isHeads);
-            const user = eco.getUser(userId);
-
-            let profit = 0;
-            let endBal = 0;
-            let streak = user.cfStreak || 0;
-
-            if (won) {
-                user.cfStreak = streak + 1;
-                streak = user.cfStreak;
-                const bonusRate = streak === 1 ? 1.0 : streak === 2 ? 1.10 : streak === 3 ? 1.25 : streak === 4 ? 1.40 : 1.50;
-                profit = Math.floor(bet * bonusRate);
-                endBal = eco.addBalance(userId, bet + profit);
-            } else {
-                user.cfStreak = 0;
-                endBal = eco.getBalance(userId);
-            }
-            eco.scheduleSave();
-
-            const ticketId = generateFairTicket();
-
-            const spinEmbed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `${message.author.username}'s Double-or-Nothing 🪙`, iconURL: message.author.displayAvatarURL() })
-                .setDescription(
-                    `\`\`\`\n` +
-                    `    .--------.   \n` +
-                    `   /  FLIP... \\  \n` +
-                    `  |     🪙     | \n` +
-                    `   \\   ↺ ↻    /  \n` +
-                    `    '--------'   \n` +
-                    `\`\`\`\n` +
-                    `🪙 **Tossing coin in the air...**\n` +
-                    `🎯 **Your Pick:** \`${pickedHeads ? 'HEADS' : 'TAILS'}\` • **Wager:** \`${eco.formatMoney(bet)}\`\n\n` +
-                    `*Generating CSPRNG cryptographic verification (Roll #${ticketId})...*`
-                );
-
-            const statusMsg = await fastReply(message, { embeds: [spinEmbed] });
-
-            setTimeout(async () => {
-                const finalEmbed = casinoCoinflipEmbed(
-                    message.author.username,
-                    message.author.displayAvatarURL(),
-                    pickedHeads ? 'heads' : 'tails',
-                    isHeads,
-                    won,
-                    bet,
-                    streak,
-                    profit,
-                    endBal,
-                    ticketId
-                );
-                if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed] }).catch(() => {});
-                else await fastReply(message, { embeds: [finalEmbed] });
-            }, 650);
-            return;
+            return runCoinflipGame(message.channel, message.author, choice, bet, message);
         }
 
         if (cmd === 'slots' || cmd === 'slot') {
@@ -1746,103 +2458,13 @@ client.on(Events.MessageCreate, async message => {
             if (isNaN(bet) || bet <= 0) return fastReply(message, { embeds: [makeEmbed('Slots Usage 🎰', `\`${PREFIX}slots <bet>\`\nExample: \`${PREFIX}slots 50\``, COLORS.PRIMARY)] });
             if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
 
-            // Deduct wager upfront
-            eco.removeBalance(userId, bet);
-
-            // Rebalanced reel weights for realistic casino entertainment & ~48% hit rate
-            const reelWeights = [
-                { symbol: '🍒', weight: 26 },
-                { symbol: '🍋', weight: 22 },
-                { symbol: '🍇', weight: 20 },
-                { symbol: '🔔', weight: 16 },
-                { symbol: '💎', weight: 10 },
-                { symbol: '7️⃣', weight: 6 }
-            ];
-
-            const totalWeight = reelWeights.reduce((acc, r) => acc + r.weight, 0); // 100
-            function spinReel() {
-                let r = secureRandomInt(0, totalWeight - 1);
-                for (const item of reelWeights) {
-                    if (r < item.weight) return item.symbol;
-                    r -= item.weight;
-                }
-                return '🍒';
-            }
-
-            const r1 = spinReel();
-            const r2 = spinReel();
-            const r3 = spinReel();
-
-            let outcome = { multiplier: 0, banner: '★ TRY AGAIN ★', desc: '' };
-
-            if (r1 === r2 && r2 === r3) {
-                if (r1 === '7️⃣') {
-                    outcome = { multiplier: 35, banner: '★ ★ ★ GRAND JACKPOT ★ ★ ★', desc: 'TRIPLE LUCKY 7s (35x)' };
-                } else if (r1 === '💎') {
-                    outcome = { multiplier: 20, banner: '★ ★ DIAMOND JACKPOT ★ ★', desc: 'TRIPLE DIAMONDS (20x)' };
-                } else if (r1 === '🔔') {
-                    outcome = { multiplier: 12, banner: '★ ★ GOLDEN BELLS ★ ★', desc: 'TRIPLE BELLS (12x)' };
-                } else if (r1 === '🍇') {
-                    outcome = { multiplier: 8, banner: '★ ★ ROYAL GRAPES ★ ★', desc: 'TRIPLE GRAPES (8x)' };
-                } else if (r1 === '🍋') {
-                    outcome = { multiplier: 6, banner: '★ LEMON HARVEST ★', desc: 'TRIPLE LEMONS (6x)' };
-                } else {
-                    outcome = { multiplier: 5, banner: '★ TRIPLE CHERRIES ★', desc: 'TRIPLE CHERRIES (5x)' };
-                }
-            } else if (r1 === r2 || r2 === r3 || r1 === r3) {
-                const pairSym = (r1 === r2 || r1 === r3) ? r1 : r2;
-                if (pairSym === '7️⃣' || pairSym === '💎') {
-                    outcome = { multiplier: 3.0, banner: '★ HIGH-ROLLER PAIR ★', desc: `PAIR OF ${pairSym} (3x)` };
-                } else if (pairSym === '🔔' || pairSym === '🍇') {
-                    outcome = { multiplier: 2.0, banner: '★ LUCKY PAIR ★', desc: `PAIR OF ${pairSym} (2x)` };
-                } else {
-                    outcome = { multiplier: 1.5, banner: '★ FRUIT PAIR ★', desc: `PAIR OF ${pairSym} (1.5x)` };
-                }
-            } else if ([r1, r2, r3].filter(s => ['🍒', '🍋', '🍇'].includes(s)).length === 3) {
-                outcome = { multiplier: 1.2, banner: '★ FRUIT SALAD COMBO ★', desc: 'ALL-FRUIT SALAD MIX (1.2x)' };
-            } else if (r1 === '🍒' || r2 === '🍒' || r3 === '🍒') {
-                outcome = { multiplier: 1, banner: '★ SAFE SPIN REFUND ★', desc: 'SINGLE CHERRY CONSOLATION' };
-            }
-
-            let newBal = 0;
-            if (outcome.multiplier > 0) {
-                const totalReturn = Math.floor(bet * outcome.multiplier);
-                newBal = eco.addBalance(userId, totalReturn);
-            } else {
-                newBal = eco.getBalance(userId);
-            }
-
-            const spinEmbed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `${message.author.username}'s Bellagio Slots 🎰`, iconURL: message.author.displayAvatarURL() })
-                .setDescription(
-                    `\`\`\`\n` +
-                    `╔══════════════════════════════════╗\n` +
-                    `║      ★ BELLAGIO CASINO ★         ║\n` +
-                    `╠══════════════════════════════════╣\n` +
-                    `║      [  🌀  │  🌀  │  🌀  ]       ║ ◀ SPINNING\n` +
-                    `╠══════════════════════════════════╣\n` +
-                    `║       PULLING REEL LEVER...      ║\n` +
-                    `╚══════════════════════════════════╝\n` +
-                    `\`\`\`\n` +
-                    `🎰 **Spinning the 3-Reel Slots...**\n` +
-                    `💰 **Wager Placed:** \`${eco.formatMoney(bet)}\``
-                );
-
-            const statusMsg = await fastReply(message, { embeds: [spinEmbed] });
-
-            setTimeout(async () => {
-                const finalEmbed = casinoSlotsEmbed(message.author.username, message.author.displayAvatarURL(), r1, r2, r3, outcome, bet, newBal);
-                if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed] }).catch(() => {});
-                else await fastReply(message, { embeds: [finalEmbed] });
-            }, 750);
-            return;
+            return runSlotsGame(message.channel, message.author, bet, message);
         }
 
-        // ----------------- BLACKJACK (HIT / STAND WITH BOTH BUTTONS & TEXT) -----------------
+        // ----------------- BLACKJACK (HIT / STAND / DOUBLE DOWN 3-BUTTON SYSTEM) -----------------
         if (cmd === 'blackjack' || cmd === 'bj') {
             if (activeBlackjackGames.has(userId)) {
-                return fastReply(message, { embeds: [makeEmbed('Game In Progress 🃏', 'You already have an active Blackjack hand! Click **Hit 🟢** / **Stand 🛑** or type `hit` / `stand`.', COLORS.WARNING)] });
+                return fastReply(message, { embeds: [makeEmbed('Game In Progress 🃏', 'You already have an active Blackjack hand! Click **Hit 🟢**, **Stand 🛑**, or **Double Down ⚡** or type `hit` / `stand` / `double`.', COLORS.WARNING)] });
             }
 
             const currentBal = eco.getBalance(userId);
@@ -1850,268 +2472,7 @@ client.on(Events.MessageCreate, async message => {
             if (isNaN(bet) || bet <= 0) return fastReply(message, { embeds: [makeEmbed('Blackjack Usage 🃏', `\`${PREFIX}blackjack <bet>\`\nExample: \`${PREFIX}blackjack 100\``, COLORS.PRIMARY)] });
             if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
 
-            eco.removeBalance(userId, bet);
-
-            // 6-Deck Shuffled Shoe for authentic casino distribution
-            const suits = ['♠', '♥', '♦', '♣'];
-            const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-            const shoe = [];
-            for (let d = 0; d < 6; d++) {
-                for (const s of suits) {
-                    for (const v of values) {
-                        shoe.push({ val: v, suit: s, text: `${v}${s}` });
-                    }
-                }
-            }
-            // Fisher-Yates shuffle with cryptographic randomness
-            for (let i = shoe.length - 1; i > 0; i--) {
-                const j = secureRandomInt(0, i);
-                [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
-            }
-
-            function drawCard() {
-                return shoe.pop() || { val: '10', suit: '♠', text: '10♠' };
-            }
-
-            function calcHand(cards) {
-                let total = 0;
-                let aces = 0;
-                for (const c of cards) {
-                    if (c.val === 'A') { aces++; total += 11; }
-                    else if (['K', 'Q', 'J'].includes(c.val)) { total += 10; }
-                    else { total += parseInt(c.val, 10); }
-                }
-                while (total > 21 && aces > 0) { total -= 10; aces--; }
-                return total;
-            }
-
-            const playerCards = [drawCard(), drawCard()];
-            const dealerCards = [drawCard(), drawCard()];
-            let playerTotal = calcHand(playerCards);
-            let dealerTotal = calcHand(dealerCards);
-
-            const playerHasNatural = playerTotal === 21;
-            const dealerHasNatural = dealerTotal === 21;
-
-            // Authentic Casino Rule: Immediate Hole Card Peek on 21
-            if (dealerHasNatural && playerHasNatural) {
-                const endBal = eco.addBalance(userId, bet);
-                return fastReply(message, {
-                    embeds: [casinoBlackjackEmbed(
-                        message.author.username,
-                        message.author.displayAvatarURL(),
-                        playerCards,
-                        dealerCards,
-                        21,
-                        21,
-                        bet,
-                        false,
-                        `🤝 **BOTH HOLD NATURAL 21! PUSH!**\nDealer also held Blackjack! Your wager of \`${eco.formatMoney(bet)}\` was safely refunded.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                    )]
-                });
-            } else if (dealerHasNatural) {
-                const endBal = eco.getBalance(userId);
-                return fastReply(message, {
-                    embeds: [casinoBlackjackEmbed(
-                        message.author.username,
-                        message.author.displayAvatarURL(),
-                        playerCards,
-                        dealerCards,
-                        playerTotal,
-                        21,
-                        bet,
-                        false,
-                        `💀 **DEALER REVEALS NATURAL 21! BLACKJACK!**\nDealer checked hole card. Lost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                    )]
-                });
-            } else if (playerHasNatural) {
-                // Natural 21 pays 3:2 (+150% profit = 2.5x total payout)
-                const winAmount = Math.floor(bet * 2.5);
-                const endBal = eco.addBalance(userId, winAmount);
-                return fastReply(message, {
-                    embeds: [casinoBlackjackEmbed(
-                        message.author.username,
-                        message.author.displayAvatarURL(),
-                        playerCards,
-                        dealerCards,
-                        21,
-                        dealerTotal,
-                        bet,
-                        false,
-                        `👑 **NATURAL 21! BLACKJACK PAYS 3:2!**\nDealer checked hole card and did not hold 21.\nWon **+${eco.formatMoney(Math.floor(bet * 1.5))}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                    )]
-                });
-            }
-
-            const getControls = (canDouble = true) => {
-                const components = [
-                    new ButtonBuilder().setCustomId('hit').setLabel('Hit').setStyle(ButtonStyle.Success).setEmoji('🟢'),
-                    new ButtonBuilder().setCustomId('stand').setLabel('Stand').setStyle(ButtonStyle.Danger).setEmoji('🛑')
-                ];
-                if (canDouble) {
-                    components.push(new ButtonBuilder().setCustomId('double').setLabel('Double Down').setStyle(ButtonStyle.Primary).setEmoji('⚡'));
-                }
-                return new ActionRowBuilder().addComponents(components);
-            };
-
-            const gameMsg = await fastReply(message, {
-                embeds: [casinoBlackjackEmbed(message.author.username, message.author.displayAvatarURL(), playerCards, dealerCards, playerTotal, dealerTotal, bet, true, '')],
-                components: [getControls(true)]
-            });
-            if (!gameMsg) return;
-
-            const collector = gameMsg.createMessageComponentCollector({
-                componentType: ComponentType.Button,
-                time: 60000
-            });
-
-            // Unified Game Controller (supports BOTH button click and text command)
-            const gameState = {
-                userId,
-                channelId: message.channel.id,
-                bet,
-                playerCards,
-                dealerCards,
-                playerTotal,
-                dealerTotal,
-                gameMsg,
-                collector,
-                hit: async () => {
-                    playerCards.push(drawCard());
-                    playerTotal = calcHand(playerCards);
-
-                    if (playerTotal > 21) {
-                        activeBlackjackGames.delete(userId);
-                        collector.stop('bust');
-                        const endBal = eco.getBalance(userId);
-                        return gameMsg.edit({
-                            embeds: [casinoBlackjackEmbed(
-                                message.author.username,
-                                message.author.displayAvatarURL(),
-                                playerCards,
-                                dealerCards,
-                                playerTotal,
-                                dealerTotal,
-                                bet,
-                                false,
-                                `💀 **BUSTED OVER 21!** Hand Total: \`${playerTotal}\`\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                            )],
-                            components: []
-                        }).catch(() => {});
-                    }
-
-                    // 5-Card Charlie Rule: 5 cards without busting pays 2:1 profit!
-                    if (playerCards.length >= 5 && playerTotal <= 21) {
-                        activeBlackjackGames.delete(userId);
-                        collector.stop('charlie');
-                        const won = bet * 3;
-                        const endBal = eco.addBalance(userId, won);
-                        return gameMsg.edit({
-                            embeds: [casinoBlackjackEmbed(
-                                message.author.username,
-                                message.author.displayAvatarURL(),
-                                playerCards,
-                                dealerCards,
-                                playerTotal,
-                                dealerTotal,
-                                bet,
-                                false,
-                                `🌟 **5-CARD CHARLIE! LEGENDARY HAND!**\nDrew 5 cards without busting (Total: \`${playerTotal}\`)!\nPays 2:1 profit! Won **+${eco.formatMoney(bet * 2)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                            )],
-                            components: []
-                        }).catch(() => {});
-                    }
-
-                    if (playerTotal === 21) {
-                        return await gameState.stand();
-                    }
-
-                    return gameMsg.edit({
-                        embeds: [casinoBlackjackEmbed(message.author.username, message.author.displayAvatarURL(), playerCards, dealerCards, playerTotal, dealerTotal, bet, true, '')],
-                        components: [getControls(false)]
-                    }).catch(() => {});
-                },
-                stand: async () => {
-                    activeBlackjackGames.delete(userId);
-                    collector.stop('stand');
-
-                    // Standard Dealer Rules: Dealer hits on all totals < 17, stands on all 17s
-                    while (calcHand(dealerCards) < 17) dealerCards.push(drawCard());
-                    dealerTotal = calcHand(dealerCards);
-
-                    let finalMsg = '';
-                    if (dealerTotal > 21) {
-                        const won = bet * 2;
-                        const endBal = eco.addBalance(userId, won);
-                        finalMsg = `🎉 **DEALER BUSTED!** (Dealer: \`${dealerTotal}\` vs Player: \`${playerTotal}\`)\nYou won **+${eco.formatMoney(bet)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
-                    } else if (playerTotal > dealerTotal) {
-                        const won = bet * 2;
-                        const endBal = eco.addBalance(userId, won);
-                        finalMsg = `🎉 **YOU WIN!** (Player: \`${playerTotal}\` vs Dealer: \`${dealerTotal}\`)\nYou won **+${eco.formatMoney(bet)}**!\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
-                    } else if (playerTotal < dealerTotal) {
-                        const endBal = eco.getBalance(userId);
-                        finalMsg = `💀 **DEALER WINS!** (Dealer: \`${dealerTotal}\` vs Player: \`${playerTotal}\`)\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
-                    } else {
-                        const endBal = eco.addBalance(userId, bet);
-                        finalMsg = `🤝 **PUSH (TIE)!** Both hold \`${playerTotal}\`.\nWager refunded.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``;
-                    }
-
-                    return gameMsg.edit({
-                        embeds: [casinoBlackjackEmbed(message.author.username, message.author.displayAvatarURL(), playerCards, dealerCards, playerTotal, dealerTotal, bet, false, finalMsg)],
-                        components: []
-                    }).catch(() => {});
-                },
-                double: async () => {
-                    const balLeft = eco.getBalance(userId);
-                    if (balLeft < bet) {
-                        return message.channel.send({ content: `<@${userId}> ❌ Not enough cash in vault to double down!` }).then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
-                    }
-                    eco.removeBalance(userId, bet);
-                    bet *= 2;
-                    playerCards.push(drawCard());
-                    playerTotal = calcHand(playerCards);
-
-                    if (playerTotal > 21) {
-                        activeBlackjackGames.delete(userId);
-                        collector.stop('bust');
-                        const endBal = eco.getBalance(userId);
-                        return gameMsg.edit({
-                            embeds: [casinoBlackjackEmbed(
-                                message.author.username,
-                                message.author.displayAvatarURL(),
-                                playerCards,
-                                dealerCards,
-                                playerTotal,
-                                dealerTotal,
-                                bet,
-                                false,
-                                `💀 **DOUBLE DOWN BUSTED!** Hand Total: \`${playerTotal}\`\nLost **-${eco.formatMoney(bet)}**.\n💵 **Vault:** \`${eco.formatMoney(endBal)}\``
-                            )],
-                            components: []
-                        }).catch(() => {});
-                    }
-
-                    return await gameState.stand();
-                }
-            };
-
-            activeBlackjackGames.set(userId, gameState);
-
-            collector.on('collect', async i => {
-                if (i.user.id !== userId) return i.reply({ content: '❌ This is not your game of Blackjack!', ephemeral: true });
-                await i.deferUpdate().catch(() => {});
-
-                if (i.customId === 'hit') await gameState.hit();
-                else if (i.customId === 'stand') await gameState.stand();
-                else if (i.customId === 'double') await gameState.double();
-            });
-
-            collector.on('end', async (_, reason) => {
-                if (activeBlackjackGames.has(userId)) {
-                    await gameState.stand();
-                }
-            });
-            return;
+            return startBlackjackGame(message.channel, message.author, bet, message);
         }
 
         if (cmd === 'roulette' || cmd === 'roul') {
@@ -2143,61 +2504,7 @@ client.on(Events.MessageCreate, async message => {
             if (isNaN(bet) || bet <= 0) return fastReply(message, { embeds: [makeEmbed('Invalid Bet ❌', 'Please specify a bet amount greater than 0!', COLORS.DANGER)] });
             if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
 
-            eco.removeBalance(userId, bet);
-
-            const roll = secureRandomInt(0, 36);
-            const redNumbers = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
-            const isRed = redNumbers.includes(roll);
-            const isBlack = roll !== 0 && !isRed;
-            const isGreen = roll === 0;
-
-            const isEvenMoney = ['red', 'black', 'even', 'odd', 'low', 'high'].includes(choice);
-            let won = false;
-            let multiplier = 0;
-            let isLaPartage = false;
-
-            if (choice === 'red' && isRed) { won = true; multiplier = 2; }
-            else if (choice === 'black' && isBlack) { won = true; multiplier = 2; }
-            else if (choice === 'even' && roll !== 0 && roll % 2 === 0) { won = true; multiplier = 2; }
-            else if (choice === 'odd' && roll % 2 !== 0) { won = true; multiplier = 2; }
-            else if (choice === 'low' && roll >= 1 && roll <= 18) { won = true; multiplier = 2; }
-            else if (choice === 'high' && roll >= 19 && roll <= 36) { won = true; multiplier = 2; }
-            else if (choice === '1st12' && roll >= 1 && roll <= 12) { won = true; multiplier = 3; }
-            else if (choice === '2nd12' && roll >= 13 && roll <= 24) { won = true; multiplier = 3; }
-            else if (choice === '3rd12' && roll >= 25 && roll <= 36) { won = true; multiplier = 3; }
-            else if ((choice === 'green' || choice === '0') && isGreen) { won = true; multiplier = 36; }
-            else if (parseInt(choice, 10) === roll) { won = true; multiplier = 36; }
-            else if (isGreen && isEvenMoney) {
-                isLaPartage = true;
-            }
-
-            const rollColor = isGreen ? '🟩 ZERO' : isRed ? '🟥 RED' : '⬛ BLACK';
-            let newBal = 0;
-            if (won) {
-                newBal = eco.addBalance(userId, bet * multiplier);
-            } else if (isLaPartage) {
-                newBal = eco.addBalance(userId, Math.floor(bet * 0.5));
-            } else {
-                newBal = eco.getBalance(userId);
-            }
-
-            const spinEmbed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `${message.author.username}'s European Roulette 🎡`, iconURL: message.author.displayAvatarURL() })
-                .setDescription(
-                    `🎡 **Spinning the European Roulette wheel...**\n` +
-                    `⚪ *The ivory ball is bouncing across the 37 numbered pockets...*\n\n` +
-                    `🎯 **Your Call:** \`${choice.toUpperCase()}\` • **Wager:** \`${eco.formatMoney(bet)}\``
-                );
-
-            const statusMsg = await fastReply(message, { embeds: [spinEmbed] });
-
-            setTimeout(async () => {
-                const finalEmbed = casinoRouletteEmbed(message.author.username, message.author.displayAvatarURL(), choice, roll, rollColor, won, bet, multiplier, newBal, isLaPartage);
-                if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed] }).catch(() => {});
-                else await fastReply(message, { embeds: [finalEmbed] });
-            }, 750);
-            return;
+            return runRouletteGame(message.channel, message.author, choice, bet, message);
         }
 
         if (cmd === 'dice' || cmd === 'roll') {
@@ -2206,62 +2513,7 @@ client.on(Events.MessageCreate, async message => {
             if (isNaN(bet) || bet <= 0) return fastReply(message, { embeds: [makeEmbed('Dice Usage 🎲', `\`${PREFIX}dice <bet>\`\nExample: \`${PREFIX}dice 100\``, COLORS.PRIMARY)] });
             if (bet > currentBal) return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(currentBal)}**.`, COLORS.DANGER)] });
 
-            eco.removeBalance(userId, bet);
-
-            const p1 = secureRandomInt(1, 6);
-            const p2 = secureRandomInt(1, 6);
-            const d1 = secureRandomInt(1, 6);
-            const d2 = secureRandomInt(1, 6);
-
-            const pTotal = p1 + p2;
-            const dTotal = d1 + d2;
-
-            let resultType = 'loss';
-            let multiplier = 0;
-
-            if (pTotal === dTotal) {
-                resultType = 'tie';
-                multiplier = 1;
-            } else if (pTotal > dTotal) {
-                if (p1 === p2) {
-                    resultType = 'doubles';
-                    multiplier = 2.5;
-                } else if (pTotal === 7 || pTotal === 11) {
-                    resultType = 'natural';
-                    multiplier = 2.2;
-                } else {
-                    resultType = 'win';
-                    multiplier = 2.0;
-                }
-            }
-
-            let newBal = 0;
-            if (resultType === 'tie') {
-                newBal = eco.addBalance(userId, bet);
-            } else if (resultType !== 'loss') {
-                newBal = eco.addBalance(userId, Math.floor(bet * multiplier));
-            } else {
-                newBal = eco.getBalance(userId);
-            }
-
-            const rollEmbed = new EmbedBuilder()
-                .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `${message.author.username}'s High-Stakes Craps Dice 🎲`, iconURL: message.author.displayAvatarURL() })
-                .setDescription(
-                    `🎲 **Shaking the dice cup on the felt table...**\n` +
-                    `\`[ 🎲 🎲  vs  🎲 🎲 ]\`\n\n` +
-                    `💰 **Wager Placed:** \`${eco.formatMoney(bet)}\`\n` +
-                    `*Rolling with cryptographically secure physics...*`
-                );
-
-            const statusMsg = await fastReply(message, { embeds: [rollEmbed] });
-
-            setTimeout(async () => {
-                const finalEmbed = casinoDiceEmbed(message.author.username, message.author.displayAvatarURL(), [p1, p2], [d1, d2], pTotal, dTotal, resultType, multiplier, bet, newBal);
-                if (statusMsg) await statusMsg.edit({ embeds: [finalEmbed] }).catch(() => {});
-                else await fastReply(message, { embeds: [finalEmbed] });
-            }, 650);
-            return;
+            return runDiceGame(message.channel, message.author, bet, message);
         }
 
         if (cmd === 'pay' || cmd === 'give') {
