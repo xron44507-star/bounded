@@ -1,8 +1,8 @@
 @echo off
-title Mod, Music & Gambling Discord Bot (Prefix: ,)
+title /bounded Discord Bot (Prefix: .)
 :main
 echo ===================================================
-echo     DISCORD MODERATION, MUSIC & GAMBLING (PREFIX: ,)
+echo     /BOUNDED DISCORD BOT (PREFIX: .)
 echo ===================================================
 echo.
 echo Starting bot...
