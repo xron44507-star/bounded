@@ -28,15 +28,41 @@ const tickets = require('./tickets');
 const guildSettings = require('./guildSettings');
 const tempVoice = require('./tempVoice');
 
-// Configuration
-const TOKEN = process.env.DISCORD_TOKEN;
-const PREFIX = '.';
+// Configuration & Cloud Compatibility
+const http = require('http');
+const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN || process.env.BOT_TOKEN;
+const PREFIX = process.env.PREFIX || '.';
+
+console.log('====================================================');
+console.log('⚡ [BOUNDED BOOT] Initializing Bounded Discord Bot...');
+console.log(`⚡ [BOUNDED BOOT] Node.js Version: ${process.version}`);
+console.log(`⚡ [BOUNDED BOOT] Platform: ${process.platform} (${process.arch})`);
+console.log(`⚡ [BOUNDED BOOT] Environment: ${process.env.NODE_ENV || 'production'}`);
+console.log(`⚡ [BOUNDED BOOT] Token Detected: ${TOKEN ? 'YES (' + TOKEN.slice(0, 6) + '...' + TOKEN.slice(-4) + ')' : 'NO'}`);
+console.log('====================================================');
 
 if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
-    console.error('\x1b[31m[ERROR] No valid DISCORD_TOKEN found in .env!\x1b[0m');
-    console.log('Please open .env and set your bot token:');
-    console.log('DISCORD_TOKEN=your_token_here');
+    console.error('❌ [FATAL ERROR] No valid bot token found!');
+    console.error('Please configure DISCORD_TOKEN or TOKEN in your Railway/Cloud Environment Variables!');
     process.exit(1);
+}
+
+// Cloud Health Check Endpoint for Railway / Render / Koyeb
+const CLOUD_PORT = process.env.PORT;
+if (CLOUD_PORT) {
+    const healthServer = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            status: 'online',
+            bot: client.user ? client.user.tag : 'connecting',
+            guilds: client.guilds ? client.guilds.cache.size : 0,
+            uptime: Math.floor(process.uptime()),
+            timestamp: new Date().toISOString()
+        }));
+    });
+    healthServer.listen(CLOUD_PORT, '0.0.0.0', () => {
+        console.log(`🌐 [CLOUD HEALTH CHECK] HTTP server listening on 0.0.0.0:${CLOUD_PORT} (Railway/Cloud ready).`);
+    });
 }
 
 // Color Theme (Moody Dark / Gothic Aesthetic)
