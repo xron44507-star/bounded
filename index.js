@@ -122,14 +122,20 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers
     ],
+    ws: {
+        properties: {
+            browser: 'Discord iOS'
+        }
+    },
     rest: {
-        timeout: 15000,
-        retries: 3
+        timeout: 8000,
+        retries: 2,
+        offset: 0
     },
     sweepers: {
         messages: {
-            interval: 300,
-            lifetime: 600
+            interval: 180,
+            lifetime: 300
         }
     }
 });
@@ -1974,8 +1980,8 @@ client.on(Events.MessageCreate, async message => {
             }).then(m => setTimeout(() => m?.delete().catch(() => {}), 8000));
         }
 
-        // ----------------- AFK MENTIONS CHECK -----------------
-        if (message.mentions.users.size > 0) {
+        // ----------------- AFK MENTIONS CHECK (Skipped on commands for ultra-fast response) -----------------
+        if (!message.content.startsWith(PREFIX) && message.mentions.users.size > 0) {
             message.mentions.users.forEach(mentionedUser => {
                 if (mentionedUser.bot || mentionedUser.id === userId) return;
                 const targetAfk = afk.getAfk(mentionedUser.id);
@@ -2184,6 +2190,10 @@ client.on(Events.MessageCreate, async message => {
         // ----------------- JOIN-TO-CREATE VOICE HUB COMMAND -----------------
         if (cmd === 'jointoocreate' || cmd === 'jtc' || cmd === 'setupjtc' || cmd === 'tempvc') {
             return tempVoice.setupJtc(message);
+        }
+
+        if (cmd === 'vcpanel' || cmd === 'panel' || cmd === 'voicepanel') {
+            return tempVoice.sendManualPanel(message);
         }
 
         // ----------------- CASINO & GAMBLING COMMANDS -----------------
