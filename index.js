@@ -26,6 +26,7 @@ const afk = require('./afk');
 const altshield = require('./altshield');
 const tickets = require('./tickets');
 const guildSettings = require('./guildSettings');
+const tempVoice = require('./tempVoice');
 
 // Configuration
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -1095,30 +1096,66 @@ async function runRouletteGame(channel, user, choice, bet, replyTarget = null) {
 
 function parseDuration(str) {
     if (!str) return null;
-    const match = str.match(/^(\d+)([smhd]?)$/i);
+    const clean = str.toLowerCase().trim();
+    // Support expressions like: 30s, 30sec, 10m, 10min, 10mins, 1h, 2hr, 2hours, 1d, 7days, 1w, 2weeks
+    const match = clean.match(/^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)?$/i);
     if (!match) return null;
     const val = parseInt(match[1], 10);
-    const unit = match[2]?.toLowerCase();
-    if (unit === 's') return val * 1000;
-    if (unit === 'h') return val * 60 * 60 * 1000;
-    if (unit === 'd') return val * 24 * 60 * 60 * 1000;
+    const unit = match[2] || 'm';
+
+    if (/^(s|sec|secs|second|seconds)$/.test(unit)) return val * 1000;
+    if (/^(m|min|mins|minute|minutes)$/.test(unit)) return val * 60 * 1000;
+    if (/^(h|hr|hrs|hour|hours)$/.test(unit)) return val * 60 * 60 * 1000;
+    if (/^(d|day|days)$/.test(unit)) return val * 24 * 60 * 60 * 1000;
+    if (/^(w|wk|wks|week|weeks)$/.test(unit)) return val * 7 * 24 * 60 * 60 * 1000;
     return val * 60 * 1000;
 }
 
-// Fast Member Resolver: Checks memory cache immediately before falling back to network fetch
+function formatMsDuration(ms) {
+    if (!ms || ms <= 0) return '0s';
+    const totalSec = Math.floor(ms / 1000);
+    const days = Math.floor(totalSec / 86400);
+    const hours = Math.floor((totalSec % 86400) / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    const parts = [];
+    if (days > 0) parts.push(`${days} day${days === 1 ? '' : 's'}`);
+    if (hours > 0) parts.push(`${hours} hr${hours === 1 ? '' : 's'}`);
+    if (minutes > 0) parts.push(`${minutes} min${minutes === 1 ? '' : 's'}`);
+    if (seconds > 0 && parts.length === 0) parts.push(`${seconds} sec${seconds === 1 ? '' : 's'}`);
+    return parts.join(', ') || `${totalSec}s`;
+}
+
+// Fast Member Resolver: Checks snowflake ID, exact mention, username, tag, or fetch search
 async function resolveMember(message, arg) {
     if (!arg) return null;
-    if (message.mentions.members && message.mentions.members.first()) {
-        return message.mentions.members.first();
-    }
     const cleanId = arg.replace(/[<@!>]/g, '');
+
+    // 1. If clean ID is snowflake (either direct ID or actual mention)
     if (/^\d{17,20}$/.test(cleanId)) {
         return message.guild.members.cache.get(cleanId) || await message.guild.members.fetch(cleanId).catch(() => null);
     }
-    // Name/Tag matching from in-memory cache
+
+    // 2. Exact match in mentions (only if arg was specifically a mention)
+    if (arg.startsWith('<@') && message.mentions.members && message.mentions.members.size > 0) {
+        const foundMention = message.mentions.members.get(cleanId);
+        if (foundMention) return foundMention;
+    }
+
+    // 3. Name/Tag/Nickname matching from in-memory cache
     const lower = arg.toLowerCase();
-    const found = message.guild.members.cache.find(m => m.user.username.toLowerCase() === lower || m.displayName.toLowerCase() === lower);
+    const found = message.guild.members.cache.find(m =>
+        m.user.username.toLowerCase() === lower ||
+        m.displayName.toLowerCase() === lower ||
+        m.user.tag?.toLowerCase() === lower
+    );
     if (found) return found;
+
+    // 4. Fallback search via fetch query
+    try {
+        const searched = await message.guild.members.fetch({ query: arg, limit: 1 });
+        if (searched && searched.first()) return searched.first();
+    } catch (_) {}
 
     return null;
 }
@@ -1432,6 +1469,7 @@ function getHelpCategoryEmbed(category, avatarUrl, serverName = null) {
                 `Everyday server tools, audit logs, and multi-server management.\n\n` +
                 `**Multi-Server & Administration**\n` +
                 `• \`${PREFIX}botinfo\` *(alias: \`${PREFIX}stats\`)* — Global bot stats, total servers, members, and uptime\n` +
+                `• \`${PREFIX}jointoocreate\` *(alias: \`${PREFIX}jtc\`)* — Deploy automated **Join-to-Create Temporary Voice** hub with in-chat control panel (Admin)\n` +
                 `• \`${PREFIX}serverconfig\` *(alias: \`${PREFIX}config\`)* — View this server's configuration and channels (Admin)\n` +
                 `• \`${PREFIX}setlogs <#channel>\` — Set audit log channel for deleted messages & mod alerts (Admin)\n` +
                 `• \`${PREFIX}unsetlogs\` — Disable audit logging for this server (Admin)\n` +
@@ -1545,9 +1583,26 @@ function getHelpActionRows(currentCategory = 'overview') {
     ];
 }
 
+// ----------------- JOIN-TO-CREATE & TEMP VOICE LISTENER -----------------
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+    try {
+        await tempVoice.handleVoiceStateUpdate(oldState, newState);
+    } catch (err) {
+        console.error('[TEMP_VOICE EVENT ERROR]', err);
+    }
+});
+
 // ----------------- INTERACTIVE TICKET & HELP LISTENER -----------------
 client.on(Events.InteractionCreate, async interaction => {
     try {
+        // Handle Temp Voice Control Hub (Buttons & Modals)
+        if (
+            (interaction.isButton() && interaction.customId.startsWith('btn_vc_')) ||
+            (interaction.isModalSubmit() && interaction.customId.startsWith('modal_vc_'))
+        ) {
+            return await tempVoice.handleInteraction(interaction);
+        }
+
         // Handle Help Menu Select Menu & Button Navigation
         if (interaction.isStringSelectMenu() && interaction.customId === 'help_category_select') {
             const selected = interaction.values[0] || 'overview';
@@ -2098,6 +2153,11 @@ client.on(Events.MessageCreate, async message => {
                 return statusMsg ? statusMsg.edit({ embeds: [embed] }).catch(() => {}) : fastReply(message, { embeds: [embed] });
             });
             return;
+        }
+
+        // ----------------- JOIN-TO-CREATE VOICE HUB COMMAND -----------------
+        if (cmd === 'jointoocreate' || cmd === 'jtc' || cmd === 'setupjtc' || cmd === 'tempvc') {
+            return tempVoice.setupJtc(message);
         }
 
         // ----------------- CASINO & GAMBLING COMMANDS -----------------
@@ -2903,16 +2963,48 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to kick members.', COLORS.DANGER, '⛔')] });
             }
 
+            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+                return fastReply(message, { embeds: [makeEmbed('Bot Permission Missing', 'I require the **Kick Members** permission to kick users.', COLORS.DANGER, '❌')] });
+            }
+
             const target = await resolveMember(message, args[0]);
-            if (!target) return fastReply(message, { embeds: [makeEmbed('Kick Usage', `\`${PREFIX}kick <@user|ID> [reason]\``, COLORS.PRIMARY, '👢')] });
-            if (!target.kickable) return fastReply(message, { embeds: [makeEmbed('Cannot Kick', 'Target has higher or equal permissions than the bot.', COLORS.DANGER, '❌')] });
+            if (!target) return fastReply(message, { embeds: [makeEmbed('Kick Usage', `\`${PREFIX}kick <@user|ID|name> [reason]\``, COLORS.PRIMARY, '👢')] });
+
+            if (target.id === message.author.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'You cannot kick yourself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (target.id === client.user.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'I cannot kick myself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (target.id === message.guild.ownerId) {
+                return fastReply(message, { embeds: [makeEmbed('Action Blocked', 'You cannot kick the server owner.', COLORS.DANGER, '⛔')] });
+            }
+            if (message.author.id !== message.guild.ownerId && target.roles.highest.position >= message.member.roles.highest.position) {
+                return fastReply(message, { embeds: [makeEmbed('Role Hierarchy Block', 'You cannot kick a member with a role higher than or equal to yours.', COLORS.DANGER, '⛔')] });
+            }
+            if (!target.kickable) {
+                return fastReply(message, { embeds: [makeEmbed('Cannot Kick', 'Target has higher or equal permissions than the bot.', COLORS.DANGER, '❌')] });
+            }
 
             const reason = args.slice(1).join(' ') || 'No reason provided';
             try { await target.send(`You were kicked from **${message.guild.name}** | Reason: ${reason}`); } catch (_) {}
             await target.kick(`${message.author.tag}: ${reason}`);
 
+            // Log to audit channel
+            const logChannel = guildSettings.getLogChannel(message.guild);
+            if (logChannel) {
+                logChannel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(COLORS.DANGER)
+                        .setTitle('🛡️ Moderation: Member Kicked')
+                        .setDescription(`👤 **User:** <@${target.id}> \`(${target.user.tag})\`\n👮 **Moderator:** <@${message.author.id}>\n📝 **Reason:** ${reason}`)
+                        .setTimestamp()
+                    ]
+                }).catch(() => {});
+            }
+
             return fastReply(message, {
-                embeds: [makeEmbed('Member Kicked 👢', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`, COLORS.DANGER)]
+                embeds: [makeEmbed('Member Kicked 👢', `**User:** <@${target.id}> \`(${target.user.tag})\`\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`, COLORS.DANGER)]
             });
         }
 
@@ -2921,11 +3013,28 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to ban members.', COLORS.DANGER, '⛔')] });
             }
 
+            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+                return fastReply(message, { embeds: [makeEmbed('Bot Permission Missing', 'I require the **Ban Members** permission to ban users.', COLORS.DANGER, '❌')] });
+            }
+
             const target = await resolveMember(message, args[0]);
             const targetId = target?.id || args[0]?.replace(/[<@!>]/g, '');
 
             if (!targetId || !/^\d{17,20}$/.test(targetId)) {
-                return fastReply(message, { embeds: [makeEmbed('Ban Usage', `\`${PREFIX}ban <@user|ID> [reason]\``, COLORS.PRIMARY, '🔨')] });
+                return fastReply(message, { embeds: [makeEmbed('Ban Usage', `\`${PREFIX}ban <@user|ID|name> [reason]\``, COLORS.PRIMARY, '🔨')] });
+            }
+
+            if (targetId === message.author.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'You cannot ban yourself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (targetId === client.user.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'I cannot ban myself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (targetId === message.guild.ownerId) {
+                return fastReply(message, { embeds: [makeEmbed('Action Blocked', 'You cannot ban the server owner.', COLORS.DANGER, '⛔')] });
+            }
+            if (target && message.author.id !== message.guild.ownerId && target.roles.highest.position >= message.member.roles.highest.position) {
+                return fastReply(message, { embeds: [makeEmbed('Role Hierarchy Block', 'You cannot ban a member with a role higher than or equal to yours.', COLORS.DANGER, '⛔')] });
             }
             if (target && !target.bannable) {
                 return fastReply(message, { embeds: [makeEmbed('Cannot Ban', 'Target has higher or equal permissions than the bot.', COLORS.DANGER, '❌')] });
@@ -2937,6 +3046,19 @@ client.on(Events.MessageCreate, async message => {
             }
 
             await message.guild.bans.create(targetId, { reason: `${message.author.tag}: ${reason}` });
+
+            // Log to audit channel
+            const logChannel = guildSettings.getLogChannel(message.guild);
+            if (logChannel) {
+                logChannel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(COLORS.DANGER)
+                        .setTitle('🛡️ Moderation: Member Banned')
+                        .setDescription(`👤 **User:** <@${targetId}>\n👮 **Moderator:** <@${message.author.id}>\n📝 **Reason:** ${reason}`)
+                        .setTimestamp()
+                    ]
+                }).catch(() => {});
+            }
 
             return fastReply(message, {
                 embeds: [makeEmbed('Member Banned 🔨', `**User:** <@${targetId}>\n**Moderator:** <@${message.author.id}>\n**Reason:** ${reason}`, COLORS.DANGER)]
@@ -3143,23 +3265,100 @@ client.on(Events.MessageCreate, async message => {
 
         if (cmd === 'timeout' || cmd === 'mute' || cmd === 'to') {
             if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to timeout members.', COLORS.DANGER, '⛔')] });
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack the **Timeout Members** permission to timeout users.', COLORS.DANGER, '⛔')] });
+            }
+
+            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+                return fastReply(message, { embeds: [makeEmbed('Bot Permission Missing', 'I require the **Timeout Members** permission to timeout users.', COLORS.DANGER, '❌')] });
             }
 
             const target = await resolveMember(message, args[0]);
-            if (!target) return fastReply(message, { embeds: [makeEmbed('Timeout Usage', `\`${PREFIX}timeout <@user|ID> <duration> [reason]\`\nExample: \`${PREFIX}timeout @user 10m Spamming\``, COLORS.PRIMARY, '🔇')] });
+            if (!target) {
+                return fastReply(message, {
+                    embeds: [makeEmbed(
+                        'Timeout Usage 🔇',
+                        `\`${PREFIX}timeout <@user|ID|name> <duration> [reason]\`\n\n` +
+                        `**Examples:**\n` +
+                        `• \`${PREFIX}timeout @user 10m Spamming\`\n` +
+                        `• \`${PREFIX}timeout @user 1h Heated argument\`\n` +
+                        `• \`${PREFIX}timeout @user 1d Severe toxicity\`\n` +
+                        `• \`${PREFIX}timeout @user 7d Raid behavior\`\n\n` +
+                        `*Durations: \`s\` (seconds), \`m\` (minutes), \`h\` (hours), \`d\` (days), \`w\` (weeks)*`,
+                        COLORS.PRIMARY,
+                        'ℹ️'
+                    )]
+                });
+            }
+
+            if (target.id === message.author.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'You cannot timeout yourself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (target.id === client.user.id) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Target', 'I cannot timeout myself.', COLORS.WARNING, '⚠️')] });
+            }
+            if (target.id === message.guild.ownerId) {
+                return fastReply(message, { embeds: [makeEmbed('Action Blocked', 'You cannot timeout the server owner.', COLORS.DANGER, '⛔')] });
+            }
+
+            if (message.author.id !== message.guild.ownerId && target.roles.highest.position >= message.member.roles.highest.position) {
+                return fastReply(message, { embeds: [makeEmbed('Role Hierarchy Block', 'You cannot timeout a member with a role higher than or equal to yours.', COLORS.DANGER, '⛔')] });
+            }
+
+            if (!target.moderatable || target.roles.highest.position >= message.guild.members.me.roles.highest.position) {
+                return fastReply(message, { embeds: [makeEmbed('Bot Hierarchy Block', 'I cannot timeout this member because their highest role is equal to or higher than mine.', COLORS.DANGER, '❌')] });
+            }
 
             const durationStr = args[1];
             const durationMs = parseDuration(durationStr);
             if (!durationMs || durationMs < 5000 || durationMs > 28 * 24 * 60 * 60 * 1000) {
-                return fastReply(message, { embeds: [makeEmbed('Invalid Duration', 'Duration must be between 5 seconds and 28 days (e.g. `10m`, `1h`, `1d`).', COLORS.WARNING, '⏳')] });
+                return fastReply(message, { embeds: [makeEmbed('Invalid Duration ⏳', 'Duration must be between **5 seconds** and **28 days** (e.g. `10m`, `1h`, `1d`, `7d`).', COLORS.WARNING, '⚠️')] });
             }
 
             const reason = args.slice(2).join(' ') || 'No reason provided';
+            const humanDuration = formatMsDuration(durationMs);
+
+            try {
+                await target.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(COLORS.WARNING)
+                        .setTitle(`🔇 Timed Out in ${message.guild.name}`)
+                        .setDescription(`You have been placed in timeout by a moderator.\n\n` +
+                            `⏳ **Duration:** \`${humanDuration}\` (\`${durationStr}\`)\n` +
+                            `📝 **Reason:** ${reason}`
+                        )
+                        .setTimestamp()
+                    ]
+                });
+            } catch (_) {}
+
             try {
                 await target.timeout(durationMs, `${message.author.tag}: ${reason}`);
+
+                const logChannel = guildSettings.getLogChannel(message.guild);
+                if (logChannel) {
+                    logChannel.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor(COLORS.WARNING)
+                            .setTitle('🛡️ Moderation: Member Timed Out')
+                            .setDescription(
+                                `👤 **Member:** <@${target.id}> \`(${target.user.tag})\`\n` +
+                                `👮 **Moderator:** <@${message.author.id}>\n` +
+                                `⏳ **Duration:** \`${humanDuration}\` (\`${durationStr}\`)\n` +
+                                `📝 **Reason:** ${reason}`
+                            )
+                            .setTimestamp()
+                        ]
+                    }).catch(() => {});
+                }
+
                 return fastReply(message, {
-                    embeds: [makeEmbed('Member Timed Out 🔇', `**User:** <@${target.id}>\n**Moderator:** <@${message.author.id}>\n**Duration:** \`${durationStr}\`\n**Reason:** ${reason}`, COLORS.WARNING)]
+                    embeds: [makeEmbed('Member Timed Out 🔇',
+                        `👤 **User:** <@${target.id}> \`(${target.user.tag})\`\n` +
+                        `🛡️ **Moderator:** <@${message.author.id}>\n` +
+                        `⏳ **Duration:** \`${humanDuration}\` (\`${durationStr}\`)\n` +
+                        `📝 **Reason:** ${reason}`,
+                        COLORS.WARNING
+                    )]
                 });
             } catch (err) {
                 return fastReply(message, { embeds: [makeEmbed('Timeout Failed', `\`${err.message || err}\``, COLORS.DANGER, '❌')] });
@@ -3171,13 +3370,38 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You lack permission to remove timeouts.', COLORS.DANGER, '⛔')] });
             }
 
+            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+                return fastReply(message, { embeds: [makeEmbed('Bot Permission Missing', 'I require the **Timeout Members** permission to remove timeouts.', COLORS.DANGER, '❌')] });
+            }
+
             const target = await resolveMember(message, args[0]);
-            if (!target) return fastReply(message, { embeds: [makeEmbed('Untimeout Usage', `\`${PREFIX}untimeout <@user|ID>\``, COLORS.PRIMARY, '🔊')] });
+            if (!target) return fastReply(message, { embeds: [makeEmbed('Untimeout Usage', `\`${PREFIX}untimeout <@user|ID|name>\``, COLORS.PRIMARY, '🔊')] });
+
+            if (!target.isCommunicationDisabled()) {
+                return fastReply(message, { embeds: [makeEmbed('Not Timed Out', `<@${target.id}> is not currently in timeout.`, COLORS.WARNING, 'ℹ️')] });
+            }
 
             try {
                 await target.timeout(null, `Timeout removed by ${message.author.tag}`);
+
+                const logChannel = guildSettings.getLogChannel(message.guild);
+                if (logChannel) {
+                    logChannel.send({
+                        embeds: [new EmbedBuilder()
+                            .setColor(COLORS.SUCCESS)
+                            .setTitle('🛡️ Moderation: Timeout Removed')
+                            .setDescription(
+                                `👤 **Member:** <@${target.id}> \`(${target.user.tag})\`\n` +
+                                `👮 **Moderator:** <@${message.author.id}>\n` +
+                                `🔊 **Action:** Timeout revoked early`
+                            )
+                            .setTimestamp()
+                        ]
+                    }).catch(() => {});
+                }
+
                 return fastReply(message, {
-                    embeds: [makeEmbed('Timeout Removed 🔊', `Restored speak permissions for <@${target.id}>.`, COLORS.SUCCESS)]
+                    embeds: [makeEmbed('Timeout Removed 🔊', `Restored communication permissions for <@${target.id}>.`, COLORS.SUCCESS)]
                 });
             } catch (err) {
                 return fastReply(message, { embeds: [makeEmbed('Untimeout Failed', `\`${err.message || err}\``, COLORS.DANGER, '❌')] });

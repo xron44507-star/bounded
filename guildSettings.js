@@ -15,6 +15,8 @@ function getDefaultSettings(guildId) {
             mediaChannels: ['1557200905198112878', '1550381629992865888'],
             ticketCategoryId: '1550661181138669653',
             appCategoryId: '1550381632396197908',
+            jtcChannelId: null,
+            jtcCategoryId: null,
             appsOpen: false,
             prefix: '.'
         };
@@ -24,6 +26,8 @@ function getDefaultSettings(guildId) {
         mediaChannels: [],
         ticketCategoryId: null,
         appCategoryId: null,
+        jtcChannelId: null,
+        jtcCategoryId: null,
         appsOpen: false,
         prefix: '.'
     };
@@ -146,6 +150,20 @@ function setAppCategoryId(guildId, categoryId) {
     return setGuildSetting(guildId, 'appCategoryId', categoryId);
 }
 
+function getJtcSettings(guildId) {
+    const settings = getGuildSettings(guildId);
+    return {
+        channelId: settings.jtcChannelId || null,
+        categoryId: settings.jtcCategoryId || null
+    };
+}
+
+function setJtcSettings(guildId, channelId, categoryId) {
+    setGuildSetting(guildId, 'jtcChannelId', channelId);
+    setGuildSetting(guildId, 'jtcCategoryId', categoryId);
+    return { channelId, categoryId };
+}
+
 module.exports = {
     MAIN_GUILD_ID,
     getGuildSettings,
@@ -160,5 +178,7 @@ module.exports = {
     getTicketCategoryId,
     setTicketCategoryId,
     getAppCategoryId,
-    setAppCategoryId
+    setAppCategoryId,
+    getJtcSettings,
+    setJtcSettings
 };
