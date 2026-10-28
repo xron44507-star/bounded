@@ -25,6 +25,7 @@ const eco = require('./economy');
 const afk = require('./afk');
 const altshield = require('./altshield');
 const tickets = require('./tickets');
+const guildSettings = require('./guildSettings');
 
 // Configuration
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -1180,17 +1181,36 @@ distube
         }).catch(() => {});
     });
 
+function updateBotPresence() {
+    if (!client.user) return;
+    const serverCount = client.guilds.cache.size;
+    client.user.setPresence({
+        activities: [{ name: `.help | ${serverCount} servers`, type: ActivityType.Watching }],
+        status: 'online'
+    });
+}
+
 // Ready Event
 client.once(Events.ClientReady, c => {
     console.log(`\x1b[32m[READY] Logged in as ${c.user.tag}\x1b[0m`);
     console.log(`[INFO] Bot prefix is: "${PREFIX}"`);
-    console.log(`[INFO] Connected to ${c.guilds.cache.size} server(s).`);
-
-    // Activity Status
-    c.user.setPresence({
-        activities: [{ name: 'tickets 📩 | .help', type: ActivityType.Watching }],
-        status: 'online'
+    console.log(`[INFO] Connected to ${c.guilds.cache.size} server(s):`);
+    c.guilds.cache.forEach(g => {
+        console.log(`  • ${g.name} (ID: ${g.id}) - ${g.memberCount} members`);
     });
+
+    updateBotPresence();
+});
+
+// Dynamic Multi-Server Handlers
+client.on(Events.GuildCreate, guild => {
+    console.log(`\x1b[32m[GUILD JOINED] ${guild.name} (ID: ${guild.id}) - ${guild.memberCount} members\x1b[0m`);
+    updateBotPresence();
+});
+
+client.on(Events.GuildDelete, guild => {
+    console.log(`\x1b[33m[GUILD LEFT] ${guild.name} (ID: ${guild.id})\x1b[0m`);
+    updateBotPresence();
 });
 
 // Alt Shield: Auto-detect and ban alts / fresh accounts of hardbanned users on join
@@ -1250,8 +1270,6 @@ client.on(Events.GuildMemberAdd, async member => {
 });
 
 // Cache recently deleted messages for ,snipe and forward to audit log channel
-const SNIPE_LOG_CHANNEL_ID = '1561898213890465954';
-
 client.on(Events.MessageDelete, async message => {
     try {
         if (!message || !message.channel || message.author?.bot) return;
@@ -1268,10 +1286,9 @@ client.on(Events.MessageDelete, async message => {
 
         snipes.set(message.channel.id, deletedData);
 
-        // Forward deletion audit log to designated channel
+        // Forward deletion audit log to designated channel ONLY within the same guild
         if (message.guild) {
-            const logChannel = message.guild.channels.cache.get(SNIPE_LOG_CHANNEL_ID) 
-                || await client.channels.fetch(SNIPE_LOG_CHANNEL_ID).catch(() => null);
+            const logChannel = guildSettings.getLogChannel(message.guild);
 
             if (logChannel && logChannel.isTextBased()) {
                 const logEmbed = new EmbedBuilder()
@@ -1288,7 +1305,7 @@ client.on(Events.MessageDelete, async message => {
                         { name: '👤 Author', value: `<@${message.author.id}> \`(${message.author.id})\``, inline: true },
                         { name: '📍 Channel', value: `<#${message.channel.id}> \`(#${message.channel.name})\``, inline: true }
                     )
-                    .setFooter({ text: `Message ID: ${message.id || 'N/A'} • Logged automatically` })
+                    .setFooter({ text: `Server: ${message.guild.name} • Logged automatically` })
                     .setTimestamp();
 
                 if (deletedData.image) {
@@ -1384,24 +1401,21 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     }
 
     if (category === 'tickets') {
-        const appsStatus = tickets.areAppsOpen() ? '🟢 OPEN' : '🔴 CLOSED';
         return new EmbedBuilder()
             .setColor(COLORS.PRIMARY)
             .setAuthor({ name: '/bounded • Support & Applications 🎫', iconURL: avatarUrl })
             .setTitle('📩 Interactive Support & Staff Applications')
             .setDescription(
-                `Button-driven private support channels and staff applications under dedicated server categories.\n\n` +
+                `Button-driven private support channels and staff applications with automated permissions.\n\n` +
                 `**Commands & Setup**\n` +
                 `• \`${PREFIX}ticketpanel [channel]\` *(alias: \`${PREFIX}ticketsetup\`)* — Deploy interactive **Support & Staff Application** portal (Admin)\n` +
-                `• \`${PREFIX}openapps\` — Enable staff applications button for members (Admin)\n` +
-                `• \`${PREFIX}closeapps\` — Disable staff applications button (Admin)\n` +
+                `• \`${PREFIX}openapps\` — Enable staff applications for this server (Admin)\n` +
+                `• \`${PREFIX}closeapps\` — Disable staff applications for this server (Admin)\n` +
+                `• \`${PREFIX}settickets <category_id>\` — Set category for support tickets (Admin)\n` +
+                `• \`${PREFIX}setapps <category_id>\` — Set category for staff applications (Admin)\n` +
                 `• \`${PREFIX}close [reason]\` — Close ticket & trigger confirmation buttons with 5s countdown\n` +
                 `• \`${PREFIX}add <@user|ID>\` — Grant a user access to the active ticket channel\n` +
-                `• \`${PREFIX}remove <@user|ID>\` — Revoke a user's access from the ticket channel\n\n` +
-                `**Current Status**\n` +
-                `• Staff Applications: **${appsStatus}**\n` +
-                `• Support Category: \`1550661181138669653\`\n` +
-                `• Staff Apps Category: \`1550381632396197908\``
+                `• \`${PREFIX}remove <@user|ID>\` — Revoke a user's access from the ticket channel`
             )
             .setFooter({ text: `Page: Tickets & Apps • Prefix: ${PREFIX}` })
             .setTimestamp();
@@ -1410,18 +1424,21 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     if (category === 'utility') {
         return new EmbedBuilder()
             .setColor(COLORS.EMERALD)
-            .setAuthor({ name: '/bounded • Utility & Server Tools 💬', iconURL: avatarUrl })
-            .setTitle('⚡ Server Utilities')
+            .setAuthor({ name: '/bounded • Utility & Multi-Server Tools 💬', iconURL: avatarUrl })
+            .setTitle('⚡ Server Utilities & Global Configuration')
             .setDescription(
-                `Everyday tools, status management, and automated channel features.\n\n` +
-                `**Commands**\n` +
+                `Everyday server tools, audit logs, and multi-server management.\n\n` +
+                `**Multi-Server & Administration**\n` +
+                `• \`${PREFIX}botinfo\` *(alias: \`${PREFIX}stats\`)* — Global bot stats, total servers, members, and uptime\n` +
+                `• \`${PREFIX}serverconfig\` *(alias: \`${PREFIX}config\`)* — View this server's configuration and channels (Admin)\n` +
+                `• \`${PREFIX}setlogs <#channel>\` — Set audit log channel for deleted messages & mod alerts (Admin)\n` +
+                `• \`${PREFIX}unsetlogs\` — Disable audit logging for this server (Admin)\n` +
+                `• \`${PREFIX}setmedia <#channel>\` — Lock a channel to photos/media only (Admin)\n` +
+                `• \`${PREFIX}unsetmedia <#channel>\` — Remove media-only restriction (Admin)\n\n` +
+                `**General Tools**\n` +
                 `• \`${PREFIX}snipe\` *(alias: \`${PREFIX}s\`)* — Reveal recently deleted message/photo in channel\n` +
                 `• \`${PREFIX}afk [reason]\` — Set AFK status; notifies anyone who tags you & auto-removes on return\n` +
-                `• \`${PREFIX}help\` *(alias: \`${PREFIX}cmds\`)* — Open interactive help menu\n` +
-                `• \`${PREFIX}push <github_repo_url> [msg]\` — Push bot codebase to GitHub repo (Admin)\n\n` +
-                `**Automated Channel Features**\n` +
-                `• **Media-Only Auto-Mod:** Enforces image/video-only channels with instant text wipe & 2s warning\n` +
-                `• **Audit Logging:** Automatically archives deleted messages with attachments in log channel`
+                `• \`${PREFIX}help\` *(alias: \`${PREFIX}cmds\`)* — Open interactive help menu`
             )
             .setFooter({ text: `Page: Utilities • Prefix: ${PREFIX}` })
             .setTimestamp();
@@ -1638,10 +1655,10 @@ client.on(Events.InteractionCreate, async interaction => {
             const isStaffApp = customId === 'ticket_create_app';
             const ticketType = isStaffApp ? 'app' : 'support';
 
-            // Check if staff applications are currently enabled
-            if (isStaffApp && !tickets.areAppsOpen()) {
+            // Check if staff applications are currently enabled for this server
+            if (isStaffApp && !tickets.areAppsOpen(guild.id)) {
                 return interaction.reply({
-                    content: '🔒 Staff applications are currently closed. Please check back later when an announcement is made!',
+                    content: '🔒 Staff applications are currently closed on this server. Please check back later when an announcement is made!',
                     ephemeral: true
                 });
             }
@@ -1667,9 +1684,22 @@ client.on(Events.InteractionCreate, async interaction => {
             const sanitizedName = user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 15) || 'user';
             const channelName = isStaffApp ? `app-${sanitizedName}` : `ticket-${sanitizedName}`;
 
-            // Destination categories: Staff App: 1550381632396197908 | Support: 1550661181138669653
-            const targetCategoryId = isStaffApp ? '1550381632396197908' : '1550661181138669653';
-            const targetCategory = guild.channels.cache.get(targetCategoryId) || await guild.channels.fetch(targetCategoryId).catch(() => null);
+            // Destination categories: check server configuration first
+            const targetCategoryId = isStaffApp
+                ? guildSettings.getAppCategoryId(guild.id)
+                : guildSettings.getTicketCategoryId(guild.id);
+
+            let targetCategory = null;
+            if (targetCategoryId) {
+                targetCategory = guild.channels.cache.get(targetCategoryId) || await guild.channels.fetch(targetCategoryId).catch(() => null);
+            }
+
+            // Fallback: search for any category named "tickets" or "apps", or current channel's category
+            if (!targetCategory) {
+                const searchName = isStaffApp ? 'app' : 'ticket';
+                targetCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes(searchName)) || null;
+            }
+
             const parentCategory = targetCategory?.id || channel?.parentId || null;
 
             const ticketChannel = await guild.channels.create({
@@ -1829,12 +1859,7 @@ client.on(Events.MessageCreate, async message => {
         const raw = message.content.trim().toLowerCase();
 
         // ----------------- MEDIA-ONLY CHANNELS ENFORCEMENT -----------------
-        const MEDIA_ONLY_CHANNELS = new Set([
-            '1557200905198112878',
-            '1550381629992865888' // Selfies channel
-        ]);
-
-        if (MEDIA_ONLY_CHANNELS.has(message.channel.id)) {
+        if (guildSettings.isMediaOnlyChannel(message.guild.id, message.channel.id)) {
             const hasAttachment = message.attachments.size > 0;
             const hasMediaLink = /(https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp|mp4|mov|webm))/i.test(message.content);
 
@@ -1914,7 +1939,7 @@ client.on(Events.MessageCreate, async message => {
         const voiceChannel = message.member?.voice?.channel;
 
         // Auto-audit check for expired server loans (seize funds if defaulted)
-        const loanAudit = eco.checkUserLoanStatus(userId);
+        const loanAudit = eco.checkUserLoanStatus(userId, message.guild.id);
         if (loanAudit.defaulted) {
             if (loanAudit.resolved) {
                 fastReply(message, {
@@ -2075,7 +2100,7 @@ client.on(Events.MessageCreate, async message => {
 
         // ----------------- CASINO & GAMBLING COMMANDS -----------------
         if (cmd === 'serverfunds' || cmd === 'funds' || cmd === 'treasury' || cmd === 'bank') {
-            const stats = eco.getServerStats();
+            const stats = eco.getServerStats(message.guild.id);
             const embed = new EmbedBuilder()
                 .setColor(COLORS.GOLD)
                 .setAuthor({ name: `${message.guild?.name || '/bounded'} Community Treasury 🏛️`, iconURL: message.guild?.iconURL() || client.user.displayAvatarURL() })
@@ -2099,7 +2124,7 @@ client.on(Events.MessageCreate, async message => {
                     `• \`${PREFIX}depositfunds <amount>\` — Donate / invest cash into the server treasury\n\n` +
                     `⚠️ **Default Policy:** Loans must be repaid within **24 hours** (+5% interest fee). If you fail to repay, repo agents will **seize all your money** into server funds and place your account in debt!`
                 )
-                .setFooter({ text: 'The Community Treasury • Backed by server liquidity' })
+                .setFooter({ text: `${message.guild?.name} Treasury • Backed by server liquidity` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
@@ -2113,7 +2138,7 @@ client.on(Events.MessageCreate, async message => {
                 });
             }
 
-            const currentFunds = eco.getServerFunds();
+            const currentFunds = eco.getServerFunds(message.guild.id);
             let amount = rawAmount === 'all' || rawAmount === 'max' ? Math.min(50000, Math.floor(currentFunds * 0.5)) : parseInt(rawAmount, 10);
 
             if (isNaN(amount) || amount <= 0) {
@@ -2124,7 +2149,7 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Minimum Loan ❌', 'Minimum loan amount is **$100**!', COLORS.DANGER)] });
             }
 
-            const res = eco.takeLoan(userId, amount);
+            const res = eco.takeLoan(userId, amount, message.guild.id);
             if (!res.success) {
                 if (res.reason === 'active_loan') {
                     const dueTimestamp = Math.floor(res.loan.dueAt / 1000);
@@ -2185,7 +2210,7 @@ client.on(Events.MessageCreate, async message => {
                     `⚠️ **CRITICAL WARNING:** Repay before the deadline using \`${PREFIX}payloan\`.\n` +
                     `If you do not pay back on time, **the server will seize ALL your money** and put it into the server funds, leaving any remainder as delinquent debt!`
                 )
-                .setFooter({ text: 'Community Loan Facility • 24h Term • 5% Interest' })
+                .setFooter({ text: `${message.guild?.name} Treasury • 24h Term • 5% Interest` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
@@ -2202,7 +2227,7 @@ client.on(Events.MessageCreate, async message => {
                 }
             }
 
-            const res = eco.payLoan(userId, amount);
+            const res = eco.payLoan(userId, amount, message.guild.id);
             if (!res.success) {
                 if (res.reason === 'no_debt') {
                     return fastReply(message, {
@@ -2244,7 +2269,7 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Deposit Funds Usage 🏛️', `\`${PREFIX}depositfunds <amount>\`\nExample: \`${PREFIX}depositfunds 1000\``, COLORS.PRIMARY)] });
             }
 
-            const res = eco.depositFunds(userId, amount);
+            const res = eco.depositFunds(userId, amount, message.guild.id);
             if (!res.success) {
                 return fastReply(message, { embeds: [makeEmbed('Insufficient Funds ❌', `You only have **${eco.formatMoney(res.balance)}** in your vault.`, COLORS.DANGER)] });
             }
@@ -2258,7 +2283,7 @@ client.on(Events.MessageCreate, async message => {
                     `🏛️ **Total Server Funds:** \`${eco.formatMoney(res.serverFunds)}\`\n` +
                     `💳 **Your Remaining Vault:** \`${eco.formatMoney(res.newBalance)}\``
                 )
-                .setFooter({ text: 'Community Bank Liquidity Provider' })
+                .setFooter({ text: `${message.guild?.name} Bank Liquidity Provider` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
@@ -2272,7 +2297,7 @@ client.on(Events.MessageCreate, async message => {
             if (isNaN(amount) || amount <= 0) {
                 return fastReply(message, { embeds: [makeEmbed('Add Funds Usage 🏛️', `\`${PREFIX}addfunds <amount>\`\nExample: \`${PREFIX}addfunds 100000\``, COLORS.PRIMARY)] });
             }
-            const newFunds = eco.addServerFunds(amount);
+            const newFunds = eco.addServerFunds(amount, message.guild.id);
             return fastReply(message, {
                 embeds: [makeEmbed('Server Funds Injected 🏛️', `Added **+${eco.formatMoney(amount)}** to the server treasury!\n🏛️ **New Server Funds:** \`${eco.formatMoney(newFunds)}\``, COLORS.SUCCESS)]
             });
@@ -3240,8 +3265,8 @@ client.on(Events.MessageCreate, async message => {
                 return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to toggle staff applications.', COLORS.DANGER, '⛔')] });
             }
 
-            const newState = cmd === 'openapps' ? true : cmd === 'closeapps' ? false : !tickets.areAppsOpen();
-            tickets.setAppsOpen(newState);
+            const newState = cmd === 'openapps' ? true : cmd === 'closeapps' ? false : !tickets.areAppsOpen(message.guild.id);
+            tickets.setAppsOpen(newState, message.guild.id);
 
             const statusText = newState
                 ? '🟢 **Staff Applications are now OPEN!**\nMembers can click **Apply for Staff** on the ticket panel to submit an application.'
@@ -3375,6 +3400,225 @@ client.on(Events.MessageCreate, async message => {
             return fastReply(message, {
                 embeds: [makeEmbed('User Removed 👤', `Removed <@${target.id}> from this ticket channel.`, COLORS.SUCCESS)]
             });
+        }
+
+        // ----------------- MULTI-SERVER & SERVER CONFIG COMMANDS -----------------
+        if (cmd === 'botinfo' || cmd === 'stats' || cmd === 'info' || cmd === 'about') {
+            const uptime = process.uptime();
+            const days = Math.floor(uptime / 86400);
+            const hours = Math.floor((uptime % 86400) / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const uptimeStr = `${days > 0 ? `${days}d ` : ''}${hours}h ${minutes}m`;
+
+            const totalUsers = client.guilds.cache.reduce((acc, g) => acc + (g.memberCount || 0), 0);
+            const ping = Math.round(client.ws.ping);
+
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({ name: `${client.user.username} • Global Statistics 🌐`, iconURL: client.user.displayAvatarURL() })
+                .setTitle('⚙️ System & Network Overview')
+                .setDescription(
+                    `\`\`\`ansi\n` +
+                    `\u001b[1;30m╭────────────────────────────────────────╮\u001b[0m\n` +
+                    `\u001b[1;37m  SERVERS:     \u001b[1;32m${client.guilds.cache.size.toString().padEnd(25)}\u001b[0m\n` +
+                    `\u001b[1;37m  TOTAL USERS: \u001b[1;36m${totalUsers.toString().padEnd(25)}\u001b[0m\n` +
+                    `\u001b[1;37m  GATEWAY PING:\u001b[1;33m${`${ping}ms`.padEnd(25)}\u001b[0m\n` +
+                    `\u001b[1;37m  UPTIME:      \u001b[1;35m${uptimeStr.padEnd(25)}\u001b[0m\n` +
+                    `\u001b[1;30m╰────────────────────────────────────────╯\u001b[0m\n` +
+                    `\`\`\`\n` +
+                    `🌐 **Network Scaling**\n` +
+                    `• **Active Servers:** \`${client.guilds.cache.size}\` Discord communities connected\n` +
+                    `• **Cached Members:** \`${totalUsers}\` users across all servers\n` +
+                    `• **Node Environment:** \`${process.version}\` • **Discord.js:** \`v14.16.3\`\n` +
+                    `• **Prefix:** \`${PREFIX}\`\n\n` +
+                    `🛠️ **Server Administration**\n` +
+                    `• \`${PREFIX}serverconfig\` — Inspect current server setup (logs, tickets, media)\n` +
+                    `• \`${PREFIX}setlogs <#channel>\` — Assign deleted message & mod audit channel\n` +
+                    `• \`${PREFIX}setmedia <#channel>\` — Enforce images-only rule in a channel\n` +
+                    `• \`${PREFIX}settickets <category_id>\` — Assign ticket category\n` +
+                    `• \`${PREFIX}setapps <category_id>\` — Assign staff app category`
+                )
+                .setFooter({ text: `/bounded • High-Performance Multi-Guild Architecture` })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'serverconfig' || cmd === 'config' || cmd === 'setup') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to view server configuration.', COLORS.DANGER, '⛔')] });
+            }
+
+            const conf = guildSettings.getGuildSettings(message.guild.id);
+            const ecoStats = eco.getServerStats(message.guild.id);
+            const appsState = tickets.areAppsOpen(message.guild.id);
+
+            const logChDisplay = conf.logChannelId ? `<#${conf.logChannelId}> \`(${conf.logChannelId})\`` : '*None (Set with `.setlogs #channel`)*';
+            const mediaDisplay = (conf.mediaChannels && conf.mediaChannels.length > 0)
+                ? conf.mediaChannels.map(id => `<#${id}>`).join(', ')
+                : '*None (Set with `.setmedia #channel`)*';
+            const ticketCatDisplay = conf.ticketCategoryId ? `\`${conf.ticketCategoryId}\`` : '*Auto-detect or Current Category*';
+            const appCatDisplay = conf.appCategoryId ? `\`${conf.appCategoryId}\`` : '*Auto-detect or Current Category*';
+
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({ name: `${message.guild.name} • Server Configuration ⚙️`, iconURL: message.guild.iconURL() || client.user.displayAvatarURL() })
+                .setTitle('📋 Guild Settings & Integration Panel')
+                .setDescription(
+                    `**Server Overview**\n` +
+                    `• **Guild ID:** \`${message.guild.id}\`\n` +
+                    `• **Members:** \`${message.guild.memberCount}\`\n` +
+                    `• **Prefix:** \`${PREFIX}\`\n\n` +
+                    `**Audit & Moderation Logs**\n` +
+                    `• **Log Channel:** ${logChDisplay}\n` +
+                    `*(Set with \`${PREFIX}setlogs <#channel>\` or disable with \`${PREFIX}unsetlogs\`)*\n\n` +
+                    `**Media-Only Channels**\n` +
+                    `• **Protected Channels:** ${mediaDisplay}\n` +
+                    `*(Add with \`${PREFIX}setmedia <#channel>\` | Remove with \`${PREFIX}unsetmedia <#channel>\`)*\n\n` +
+                    `**Support & Application Categories**\n` +
+                    `• **Tickets Category:** ${ticketCatDisplay} *(Set with \`${PREFIX}settickets <category_id>\`)*\n` +
+                    `• **Staff Apps Category:** ${appCatDisplay} *(Set with \`${PREFIX}setapps <category_id>\`)*\n` +
+                    `• **Staff Applications Status:** **${appsState ? '🟢 OPEN' : '🔴 CLOSED'}** *(Toggle with \`${PREFIX}openapps\` / \`${PREFIX}closeapps\`)*\n\n` +
+                    `**Community Treasury**\n` +
+                    `• **Vault Reserves:** \`${eco.formatMoney(ecoStats.serverFunds)}\` *(View with \`${PREFIX}serverfunds\`)*`
+                )
+                .setFooter({ text: 'Configured per-guild • Isolated storage' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
+        }
+
+        if (cmd === 'setlogs' || cmd === 'setmodlog' || cmd === 'modlog') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to configure logs.', COLORS.DANGER, '⛔')] });
+            }
+
+            const targetChannel = message.mentions.channels.first() 
+                || (args[0] && message.guild.channels.cache.get(args[0]))
+                || message.channel;
+
+            if (!targetChannel || !targetChannel.isTextBased()) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Channel ❌', `Please mention a valid text channel: \`${PREFIX}setlogs #channel\``, COLORS.DANGER)] });
+            }
+
+            guildSettings.setLogChannelId(message.guild.id, targetChannel.id);
+
+            return fastReply(message, {
+                embeds: [makeEmbed('Log Channel Configured 📝', `Successfully set deleted message audit & mod logs to <#${targetChannel.id}>.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'unsetlogs' || cmd === 'disablelogs') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to disable logs.', COLORS.DANGER, '⛔')] });
+            }
+
+            guildSettings.setLogChannelId(message.guild.id, null);
+
+            return fastReply(message, {
+                embeds: [makeEmbed('Logs Disabled 🔕', 'Audit and snipe logging has been disabled for this server.', COLORS.WARNING)]
+            });
+        }
+
+        if (cmd === 'setmedia' || cmd === 'addmedia') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to configure media channels.', COLORS.DANGER, '⛔')] });
+            }
+
+            const targetChannel = message.mentions.channels.first() 
+                || (args[0] && message.guild.channels.cache.get(args[0]))
+                || message.channel;
+
+            if (!targetChannel || !targetChannel.isTextBased()) {
+                return fastReply(message, { embeds: [makeEmbed('Invalid Channel ❌', `Please mention a valid text channel: \`${PREFIX}setmedia #channel\``, COLORS.DANGER)] });
+            }
+
+            const added = guildSettings.addMediaChannel(message.guild.id, targetChannel.id);
+            if (!added) {
+                return fastReply(message, { embeds: [makeEmbed('Already Media-Only ⚠️', `<#${targetChannel.id}> is already configured as a media-only channel!`, COLORS.WARNING)] });
+            }
+
+            return fastReply(message, {
+                embeds: [makeEmbed('Media-Only Enabled 📸', `<#${targetChannel.id}> is now **Images / Media Only**! Text-only messages will be automatically removed.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'unsetmedia' || cmd === 'removemedia') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to configure media channels.', COLORS.DANGER, '⛔')] });
+            }
+
+            const targetChannel = message.mentions.channels.first() 
+                || (args[0] && message.guild.channels.cache.get(args[0]))
+                || message.channel;
+
+            const removed = guildSettings.removeMediaChannel(message.guild.id, targetChannel.id);
+            if (!removed) {
+                return fastReply(message, { embeds: [makeEmbed('Not Media-Only ⚠️', `<#${targetChannel.id}> is not in the media-only channel list.`, COLORS.WARNING)] });
+            }
+
+            return fastReply(message, {
+                embeds: [makeEmbed('Media Restriction Removed 🔓', `<#${targetChannel.id}> is no longer restricted to media-only. Members may now send regular text.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'settickets' || cmd === 'setticketcategory') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to set categories.', COLORS.DANGER, '⛔')] });
+            }
+
+            const catInput = args[0];
+            if (!catInput) {
+                return fastReply(message, { embeds: [makeEmbed('Usage 📂', `\`${PREFIX}settickets <category_id>\`\nExample: \`${PREFIX}settickets 1550661181138669653\``, COLORS.PRIMARY)] });
+            }
+
+            const category = message.guild.channels.cache.get(catInput) || message.guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes(catInput.toLowerCase()));
+            if (!category || category.type !== ChannelType.GuildCategory) {
+                return fastReply(message, { embeds: [makeEmbed('Category Not Found ❌', 'Please specify a valid category ID or category name from this server!', COLORS.DANGER)] });
+            }
+
+            guildSettings.setTicketCategoryId(message.guild.id, category.id);
+            return fastReply(message, {
+                embeds: [makeEmbed('Ticket Category Configured 🎫', `Support tickets will now be created inside the category **${category.name}** \`(${category.id})\`.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'setapps' || cmd === 'setappcategory') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) && !message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'You need `Manage Server` permission to set categories.', COLORS.DANGER, '⛔')] });
+            }
+
+            const catInput = args[0];
+            if (!catInput) {
+                return fastReply(message, { embeds: [makeEmbed('Usage 📂', `\`${PREFIX}setapps <category_id>\`\nExample: \`${PREFIX}setapps 1550381632396197908\``, COLORS.PRIMARY)] });
+            }
+
+            const category = message.guild.channels.cache.get(catInput) || message.guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes(catInput.toLowerCase()));
+            if (!category || category.type !== ChannelType.GuildCategory) {
+                return fastReply(message, { embeds: [makeEmbed('Category Not Found ❌', 'Please specify a valid category ID or category name from this server!', COLORS.DANGER)] });
+            }
+
+            guildSettings.setAppCategoryId(message.guild.id, category.id);
+            return fastReply(message, {
+                embeds: [makeEmbed('Staff Apps Category Configured 📝', `Staff application tickets will now be created inside the category **${category.name}** \`(${category.id})\`.`, COLORS.SUCCESS)]
+            });
+        }
+
+        if (cmd === 'servers' || cmd === 'guilds') {
+            if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return fastReply(message, { embeds: [makeEmbed('Permission Denied', 'Only bot administrators can view the global server list.', COLORS.DANGER, '⛔')] });
+            }
+
+            const serverList = client.guilds.cache.map(g => `• **${g.name}** \`(${g.id})\` — **${g.memberCount}** members`).join('\n');
+            const embed = new EmbedBuilder()
+                .setColor(COLORS.PRIMARY)
+                .setAuthor({ name: `${client.user.username} Server Roster 🌐`, iconURL: client.user.displayAvatarURL() })
+                .setTitle(`Connected Servers (${client.guilds.cache.size})`)
+                .setDescription(serverList || 'No servers currently connected.')
+                .setFooter({ text: 'Multi-Guild Roster' })
+                .setTimestamp();
+
+            return fastReply(message, { embeds: [embed] });
         }
     } catch (cmdError) {
         console.error('[COMMAND RUNTIME ERROR]', cmdError);

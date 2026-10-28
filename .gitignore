@@ -6,6 +6,7 @@ afk.json
 hardbans.json
 warnings.json
 tickets.json
+guildSettings.json
 .DS_Store
 
 bounded.zip

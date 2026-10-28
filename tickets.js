@@ -75,11 +75,23 @@ function deleteTicket(channelId) {
     return false;
 }
 
-function areAppsOpen() {
+function areAppsOpen(guildId = null) {
+    if (guildId) {
+        try {
+            const guildSettings = require('./guildSettings');
+            return guildSettings.areAppsOpen(guildId);
+        } catch (_) {}
+    }
     return !!ticketData.appsOpen;
 }
 
-function setAppsOpen(state) {
+function setAppsOpen(state, guildId = null) {
+    if (guildId) {
+        try {
+            const guildSettings = require('./guildSettings');
+            guildSettings.setAppsOpen(guildId, state);
+        } catch (_) {}
+    }
     ticketData.appsOpen = !!state;
     saveData();
     return ticketData.appsOpen;

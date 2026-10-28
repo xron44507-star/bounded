@@ -135,31 +135,63 @@ function formatMoney(amount) {
     return `$${Number(amount).toLocaleString('en-US')}`;
 }
 
-function getServerFunds() {
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
-    return data.serverFunds;
+function getGuildEconomyData(guildId = null) {
+    if (!guildId) {
+        if (data.serverFunds === undefined) data.serverFunds = 250000;
+        if (!data.stats) data.stats = { totalLoansIssued: 0, totalLoansRepaid: 0, totalFundsSeized: 0 };
+        return {
+            get funds() { return data.serverFunds; },
+            set funds(val) { data.serverFunds = val; },
+            get stats() { return data.stats; }
+        };
+    }
+
+    if (!data.guilds) data.guilds = {};
+    if (!data.guilds[guildId]) {
+        const initialFunds = (guildId === '1550381628063223938' && data.serverFunds !== undefined)
+            ? data.serverFunds
+            : 250000;
+        data.guilds[guildId] = {
+            serverFunds: initialFunds,
+            stats: { totalLoansIssued: 0, totalLoansRepaid: 0, totalFundsSeized: 0 }
+        };
+    }
+    const g = data.guilds[guildId];
+    if (g.serverFunds === undefined) g.serverFunds = 250000;
+    if (!g.stats) g.stats = { totalLoansIssued: 0, totalLoansRepaid: 0, totalFundsSeized: 0 };
+
+    return {
+        get funds() { return g.serverFunds; },
+        set funds(val) { g.serverFunds = val; data.serverFunds = val; },
+        get stats() { return g.stats; }
+    };
 }
 
-function addServerFunds(amount) {
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
-    data.serverFunds += Math.floor(amount);
+function getServerFunds(guildId = null) {
+    const eco = getGuildEconomyData(guildId);
+    return eco.funds;
+}
+
+function addServerFunds(amount, guildId = null) {
+    const eco = getGuildEconomyData(guildId);
+    eco.funds += Math.floor(amount);
     scheduleSave();
-    return data.serverFunds;
+    return eco.funds;
 }
 
-function removeServerFunds(amount) {
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
-    data.serverFunds = Math.max(0, data.serverFunds - Math.floor(amount));
+function removeServerFunds(amount, guildId = null) {
+    const eco = getGuildEconomyData(guildId);
+    eco.funds = Math.max(0, eco.funds - Math.floor(amount));
     scheduleSave();
-    return data.serverFunds;
+    return eco.funds;
 }
 
-function takeLoan(userId, amount) {
+function takeLoan(userId, amount, guildId = null) {
     const user = getUser(userId);
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
+    const eco = getGuildEconomyData(guildId);
 
     // Check overdue first
-    const overdueCheck = checkUserLoanStatus(userId);
+    const overdueCheck = checkUserLoanStatus(userId, guildId);
     if (overdueCheck.defaulted) {
         return { success: false, reason: 'defaulted_seized', details: overdueCheck };
     }
@@ -175,18 +207,18 @@ function takeLoan(userId, amount) {
         return { success: false, reason: 'invalid_amount' };
     }
 
-    if (amount > data.serverFunds) {
-        return { success: false, reason: 'insufficient_server_funds', available: data.serverFunds };
+    if (amount > eco.funds) {
+        return { success: false, reason: 'insufficient_server_funds', available: eco.funds };
     }
 
     // Maximum loan cap: min($50,000, 50% of server funds)
-    const maxLoan = Math.min(50000, Math.floor(data.serverFunds * 0.5));
+    const maxLoan = Math.min(50000, Math.floor(eco.funds * 0.5));
     if (amount > maxLoan) {
         return { success: false, reason: 'exceeds_max_loan', maxLoan };
     }
 
     // Disburse from server funds to user vault
-    data.serverFunds -= amount;
+    eco.funds -= amount;
     user.balance += amount;
 
     // 5% interest fee, 24 hours deadline
@@ -198,11 +230,11 @@ function takeLoan(userId, amount) {
         principal: amount,
         owed,
         borrowedAt,
-        dueAt
+        dueAt,
+        guildId: guildId || null
     };
 
-    if (!data.stats) data.stats = {};
-    data.stats.totalLoansIssued = (data.stats.totalLoansIssued || 0) + 1;
+    eco.stats.totalLoansIssued = (eco.stats.totalLoansIssued || 0) + 1;
 
     scheduleSave();
     return {
@@ -211,16 +243,16 @@ function takeLoan(userId, amount) {
         owed,
         dueAt,
         newBalance: user.balance,
-        serverFunds: data.serverFunds
+        serverFunds: eco.funds
     };
 }
 
-function payLoan(userId, amount = null) {
+function payLoan(userId, amount = null, guildId = null) {
     const user = getUser(userId);
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
+    const eco = getGuildEconomyData(guildId || user.loan?.guildId || null);
 
     // First check overdue
-    checkUserLoanStatus(userId);
+    checkUserLoanStatus(userId, guildId || user.loan?.guildId || null);
 
     if (!user.loan && (!user.debt || user.debt <= 0)) {
         return { success: false, reason: 'no_debt' };
@@ -236,11 +268,10 @@ function payLoan(userId, amount = null) {
         if (toPay <= 0) return { success: false, reason: 'invalid_amount' };
 
         user.balance -= toPay;
-        data.serverFunds += toPay;
+        eco.funds += toPay;
         user.debt -= toPay;
 
-        if (!data.stats) data.stats = {};
-        data.stats.totalLoansRepaid = (data.stats.totalLoansRepaid || 0) + toPay;
+        eco.stats.totalLoansRepaid = (eco.stats.totalLoansRepaid || 0) + toPay;
 
         scheduleSave();
         return {
@@ -250,7 +281,7 @@ function payLoan(userId, amount = null) {
             cleared: user.debt <= 0,
             remainingDebt: user.debt,
             newBalance: user.balance,
-            serverFunds: data.serverFunds
+            serverFunds: eco.funds
         };
     }
 
@@ -260,16 +291,15 @@ function payLoan(userId, amount = null) {
         if (toPay <= 0) return { success: false, reason: 'invalid_amount' };
 
         user.balance -= toPay;
-        data.serverFunds += toPay;
+        eco.funds += toPay;
         user.loan.owed -= toPay;
+
+        eco.stats.totalLoansRepaid = (eco.stats.totalLoansRepaid || 0) + toPay;
 
         const cleared = user.loan.owed <= 0;
         if (cleared) {
             user.loan = null;
         }
-
-        if (!data.stats) data.stats = {};
-        data.stats.totalLoansRepaid = (data.stats.totalLoansRepaid || 0) + toPay;
 
         scheduleSave();
         return {
@@ -279,14 +309,17 @@ function payLoan(userId, amount = null) {
             cleared,
             remainingOwed: cleared ? 0 : user.loan.owed,
             newBalance: user.balance,
-            serverFunds: data.serverFunds
+            serverFunds: eco.funds
         };
     }
 }
 
-function checkUserLoanStatus(userId) {
+function checkUserLoanStatus(userId, guildId = null) {
     const user = getUser(userId);
     if (!user.loan) return { defaulted: false };
+
+    const effectiveGuildId = guildId || user.loan.guildId || null;
+    const eco = getGuildEconomyData(effectiveGuildId);
 
     const now = Date.now();
     if (now <= user.loan.dueAt) {
@@ -300,7 +333,7 @@ function checkUserLoanStatus(userId) {
     if (userBal >= owed) {
         // Full repossession from user balance
         user.balance -= owed;
-        data.serverFunds = (data.serverFunds || 250000) + owed;
+        eco.funds += owed;
         user.loan = null;
         scheduleSave();
         return {
@@ -316,10 +349,9 @@ function checkUserLoanStatus(userId) {
         user.balance = 0;
         const remainingDebt = owed - seized;
         user.debt = (user.debt || 0) + remainingDebt;
-        data.serverFunds = (data.serverFunds || 250000) + seized;
+        eco.funds += seized;
 
-        if (!data.stats) data.stats = {};
-        data.stats.totalFundsSeized = (data.stats.totalFundsSeized || 0) + seized;
+        eco.stats.totalFundsSeized = (eco.stats.totalFundsSeized || 0) + seized;
 
         user.loan = null;
         scheduleSave();
@@ -333,19 +365,20 @@ function checkUserLoanStatus(userId) {
     }
 }
 
-function depositFunds(userId, amount) {
+function depositFunds(userId, amount, guildId = null) {
     const user = getUser(userId);
     if (amount <= 0 || isNaN(amount)) return { success: false, reason: 'invalid_amount' };
     if (user.balance < amount) return { success: false, reason: 'insufficient_funds', balance: user.balance };
 
+    const eco = getGuildEconomyData(guildId);
     user.balance -= amount;
-    data.serverFunds = (data.serverFunds || 250000) + amount;
+    eco.funds += amount;
     scheduleSave();
     return {
         success: true,
         deposited: amount,
         newBalance: user.balance,
-        serverFunds: data.serverFunds
+        serverFunds: eco.funds
     };
 }
 
@@ -361,14 +394,14 @@ function forgiveLoan(userId) {
     return true;
 }
 
-function getServerStats() {
-    if (data.serverFunds === undefined) data.serverFunds = 250000;
+function getServerStats(guildId = null) {
+    const eco = getGuildEconomyData(guildId);
     let totalActiveLoans = 0;
     let totalLoanAmount = 0;
     let totalDelinquentDebt = 0;
 
     for (const [id, u] of Object.entries(data.users)) {
-        if (u.loan) {
+        if (u.loan && (!guildId || u.loan.guildId === guildId)) {
             totalActiveLoans++;
             totalLoanAmount += u.loan.owed;
         }
@@ -378,13 +411,13 @@ function getServerStats() {
     }
 
     return {
-        serverFunds: data.serverFunds,
+        serverFunds: eco.funds,
         totalActiveLoans,
         totalLoanAmount,
         totalDelinquentDebt,
-        totalLoansIssued: data.stats?.totalLoansIssued || 0,
-        totalLoansRepaid: data.stats?.totalLoansRepaid || 0,
-        totalFundsSeized: data.stats?.totalFundsSeized || 0
+        totalLoansIssued: eco.stats?.totalLoansIssued || 0,
+        totalLoansRepaid: eco.stats?.totalLoansRepaid || 0,
+        totalFundsSeized: eco.stats?.totalFundsSeized || 0
     };
 }
 
