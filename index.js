@@ -1319,11 +1319,13 @@ client.on(Events.MessageDelete, async message => {
 });
 
 // ----------------- HELP EMBED GENERATOR HELPER -----------------
-function getHelpCategoryEmbed(category, avatarUrl) {
+function getHelpCategoryEmbed(category, avatarUrl, serverName = null) {
+    const sName = serverName || 'Server';
+
     if (category === 'casino') {
         return new EmbedBuilder()
             .setColor(COLORS.GOLD)
-            .setAuthor({ name: '/bounded • Casino & Gambling Suite 🎲', iconURL: avatarUrl })
+            .setAuthor({ name: `${sName} • Casino & Gambling Suite 🎲`, iconURL: avatarUrl })
             .setTitle('🎰 High-Roller Casino & Economy')
             .setDescription(
                 `Every player starts with **$1,000** in their vault. All games feature balanced odds, payout multipliers, and protection refunds!\n\n` +
@@ -1353,7 +1355,7 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     if (category === 'music') {
         return new EmbedBuilder()
             .setColor(COLORS.MUSIC)
-            .setAuthor({ name: '/bounded • Voice Channel Audio 🎵', iconURL: avatarUrl })
+            .setAuthor({ name: `${sName} • Voice Channel Audio 🎵`, iconURL: avatarUrl })
             .setTitle('🎶 VC Music Streaming')
             .setDescription(
                 `High-fidelity audio streaming directly into voice channels from YouTube, Spotify, SoundCloud, or direct URLs.\n\n` +
@@ -1377,7 +1379,7 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     if (category === 'mod') {
         return new EmbedBuilder()
             .setColor(COLORS.RUBY)
-            .setAuthor({ name: '/bounded • Moderation & Security 🛡️', iconURL: avatarUrl })
+            .setAuthor({ name: `${sName} • Moderation & Security 🛡️`, iconURL: avatarUrl })
             .setTitle('⚔️ Server Moderation Suite')
             .setDescription(
                 `Powerful staff enforcement utilities featuring automated strike tracking and Alt Shield account interception.\n\n` +
@@ -1403,7 +1405,7 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     if (category === 'tickets') {
         return new EmbedBuilder()
             .setColor(COLORS.PRIMARY)
-            .setAuthor({ name: '/bounded • Support & Applications 🎫', iconURL: avatarUrl })
+            .setAuthor({ name: `${sName} • Support & Applications 🎫`, iconURL: avatarUrl })
             .setTitle('📩 Interactive Support & Staff Applications')
             .setDescription(
                 `Button-driven private support channels and staff applications with automated permissions.\n\n` +
@@ -1424,7 +1426,7 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     if (category === 'utility') {
         return new EmbedBuilder()
             .setColor(COLORS.EMERALD)
-            .setAuthor({ name: '/bounded • Utility & Multi-Server Tools 💬', iconURL: avatarUrl })
+            .setAuthor({ name: `${sName} • Utility & Multi-Server Tools 💬`, iconURL: avatarUrl })
             .setTitle('⚡ Server Utilities & Global Configuration')
             .setDescription(
                 `Everyday server tools, audit logs, and multi-server management.\n\n` +
@@ -1447,10 +1449,10 @@ function getHelpCategoryEmbed(category, avatarUrl) {
     // Default Overview Page
     return new EmbedBuilder()
         .setColor(COLORS.PRIMARY)
-        .setAuthor({ name: '/bounded • Command Manual', iconURL: avatarUrl })
-        .setTitle('✨ /bounded Dashboard')
+        .setAuthor({ name: `${sName} • Command Manual`, iconURL: avatarUrl })
+        .setTitle(`✨ ${sName} Dashboard`)
         .setDescription(
-            `Welcome to **/bounded**! Use the **dropdown menu** or **buttons** below to browse commands by category.\n\n` +
+            `Welcome to **${sName}**! Use the **dropdown menu** or **buttons** below to browse commands by category.\n\n` +
             `**Command Prefix:** \`${PREFIX}\` *(dot)*\n\n` +
             `📂 **Available Categories:**\n` +
             `• 🎲 **Casino & Economy** — VIP Blackjack, Slots, Coinflip, Craps, Roulette, Rob, Bal\n` +
@@ -1549,14 +1551,14 @@ client.on(Events.InteractionCreate, async interaction => {
         // Handle Help Menu Select Menu & Button Navigation
         if (interaction.isStringSelectMenu() && interaction.customId === 'help_category_select') {
             const selected = interaction.values[0] || 'overview';
-            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL());
+            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL(), interaction.guild?.name);
             const rows = getHelpActionRows(selected);
             return interaction.update({ embeds: [embed], components: rows });
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('help_btn_')) {
             const selected = interaction.customId.replace('help_btn_', '');
-            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL());
+            const embed = getHelpCategoryEmbed(selected, client.user.displayAvatarURL(), interaction.guild?.name);
             const rows = getHelpActionRows(selected);
             return interaction.update({ embeds: [embed], components: rows });
         }
@@ -1741,12 +1743,12 @@ client.on(Events.InteractionCreate, async interaction => {
             // Welcome embed & buttons inside new channel
             const welcomeEmbed = new EmbedBuilder()
                 .setColor(isStaffApp ? COLORS.CASINO : COLORS.PRIMARY)
-                .setAuthor({ name: `/bounded ${isStaffApp ? 'Staff Application' : 'Support Ticket'} #${ticketNumber}`, iconURL: client.user.displayAvatarURL() })
+                .setAuthor({ name: `${guild.name} • ${isStaffApp ? 'Staff Application' : 'Support Ticket'} #${ticketNumber}`, iconURL: guild.iconURL() || client.user.displayAvatarURL() })
                 .setTitle(isStaffApp ? `📝 Staff Application #${ticketNumber}` : `🎫 Support Ticket #${ticketNumber}`)
                 .setDescription(
                     `Welcome <@${user.id}>!\n\n` +
                     (isStaffApp 
-                        ? `Thank you for applying to the **/bounded** staff team!\n\n` +
+                        ? `Thank you for applying to the **${guild.name}** staff team!\n\n` +
                           `📋 **Application Instructions:**\n` +
                           `Please state your **age**, **timezone**, previous **moderation experience**, why you want to join, and what you can bring to the community.\n\n` +
                           `Staff will review your application shortly.`
@@ -1756,7 +1758,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     `• \`${PREFIX}add <@user>\` — Add a user to this ticket\n` +
                     `• \`${PREFIX}remove <@user>\` — Remove a user from this ticket`
                 )
-                .setFooter({ text: `/bounded Ticket System • Click buttons below to manage` })
+                .setFooter({ text: `${guild.name} Ticket System • Click buttons below to manage` })
                 .setTimestamp();
 
             const actionRow = new ActionRowBuilder().addComponents(
@@ -1972,7 +1974,7 @@ client.on(Events.MessageCreate, async message => {
             else if (['ticket', 'tickets', 'support'].includes(subArg)) initialCategory = 'tickets';
             else if (['util', 'utility', 'tools'].includes(subArg)) initialCategory = 'utility';
 
-            const embed = getHelpCategoryEmbed(initialCategory, client.user.displayAvatarURL());
+            const embed = getHelpCategoryEmbed(initialCategory, client.user.displayAvatarURL(), message.guild?.name);
             const rows = getHelpActionRows(initialCategory);
 
             return fastReply(message, {
@@ -2103,7 +2105,7 @@ client.on(Events.MessageCreate, async message => {
             const stats = eco.getServerStats(message.guild.id);
             const embed = new EmbedBuilder()
                 .setColor(COLORS.GOLD)
-                .setAuthor({ name: `${message.guild?.name || '/bounded'} Community Treasury 🏛️`, iconURL: message.guild?.iconURL() || client.user.displayAvatarURL() })
+                .setAuthor({ name: `${message.guild?.name || 'Server'} Community Treasury 🏛️`, iconURL: message.guild?.iconURL() || client.user.displayAvatarURL() })
                 .setTitle('🏛️ CENTRAL SERVER FUNDS & BANK')
                 .setDescription(
                     `\`\`\`ansi\n` +
@@ -3286,15 +3288,15 @@ client.on(Events.MessageCreate, async message => {
 
             const panelEmbed = new EmbedBuilder()
                 .setColor(COLORS.PRIMARY)
-                .setAuthor({ name: `/bounded • Support & Staff Portal`, iconURL: client.user.displayAvatarURL() })
+                .setAuthor({ name: `${message.guild.name} • Support & Staff Portal`, iconURL: message.guild.iconURL() || client.user.displayAvatarURL() })
                 .setTitle('📩 Open a Ticket or Apply for Staff')
                 .setDescription(
-                    `Welcome to the **/bounded** support hub. Select the relevant option below:\n\n` +
+                    `Welcome to the **${message.guild.name}** support hub. Select the relevant option below:\n\n` +
                     `🎫 **Support Ticket:** Need assistance, report an issue, or speak to staff.\n` +
                     `📝 **Staff Application:** Submit an application to join our moderation staff team.\n\n` +
                     `📌 *Please only open one ticket at a time. Misuse may result in moderation actions.*`
                 )
-                .setFooter({ text: '/bounded Automated Portal • Click buttons below' })
+                .setFooter({ text: `${message.guild.name} Automated Portal • Click buttons below` })
                 .setTimestamp();
 
             const row = new ActionRowBuilder().addComponents(
@@ -3438,7 +3440,7 @@ client.on(Events.MessageCreate, async message => {
                     `• \`${PREFIX}settickets <category_id>\` — Assign ticket category\n` +
                     `• \`${PREFIX}setapps <category_id>\` — Assign staff app category`
                 )
-                .setFooter({ text: `/bounded • High-Performance Multi-Guild Architecture` })
+                .setFooter({ text: `${message.guild?.name || client.user.username} • High-Performance Multi-Guild Architecture` })
                 .setTimestamp();
 
             return fastReply(message, { embeds: [embed] });
