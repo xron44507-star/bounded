@@ -86,7 +86,7 @@ function buildControlPanel(owner, channel) {
         new ButtonBuilder()
             .setCustomId(`btn_vc_unhide_${channel.id}`)
             .setLabel('Unhide')
-            .setEmoji('👁️‍🗨️')
+            .setEmoji('👀')
             .setStyle(ButtonStyle.Secondary)
     );
 
